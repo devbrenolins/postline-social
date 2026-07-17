@@ -188,12 +188,13 @@ function UserCard() {
     <Dropdown
       align="left"
       trigger={
-        <button className="mt-1 flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition hover:bg-surface-2">
+        <button className="mt-1 flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition hover:bg-surface-2" aria-label="Abrir menu da conta no perfil">
           <Avatar name={data.user.name} color={data.user.avatarColor} size={30} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-semibold leading-tight">{data.user.name}</span>
             <span className="block truncate text-[11px] text-muted">{data.user.email}</span>
           </span>
+          <ChevronDown size={14} className="shrink-0 text-muted" />
         </button>
       }
       items={[
@@ -201,7 +202,7 @@ function UserCard() {
         { label: "Configurações", icon: <Settings size={14} />, onClick: () => router.push("/settings") },
         { divider: true, label: "" },
         {
-          label: "Sair", icon: <LogOut size={14} />, danger: true,
+          label: "Sair / trocar de conta", icon: <LogOut size={14} />, danger: true,
           onClick: async () => { await fetch("/api/auth/logout", { method: "POST" }); router.replace("/login"); router.refresh(); },
         },
       ]}
