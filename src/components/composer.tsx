@@ -22,9 +22,8 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
   const open = useCallback((opts: OpenOpts = {}) => setState({ open: true, opts }), []);
   return (
     <ComposerContext.Provider value={{ open }}>
-      {children}
       <ComposerStateContext.Provider value={{ ...state, close: () => setState((s) => ({ ...s, open: false })) }}>
-        {/* modal rendered by <ComposerModal/>, mounted once in the shell */}
+        {children}
       </ComposerStateContext.Provider>
     </ComposerContext.Provider>
   );
