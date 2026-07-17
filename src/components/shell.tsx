@@ -9,6 +9,7 @@ import {
   LayoutDashboard, CalendarDays, Images, Inbox, BarChart3, Briefcase, Users, Settings,
   Plus, Search, Bell, Sun, Moon, Menu, ChevronDown, LogOut, CheckCheck, Sparkles,
   UserRound, MonitorSmartphone, CornerDownLeft, Command as CommandIcon,
+  BrainCircuit,
 } from "lucide-react";
 import { cn, Logo, Avatar, Dropdown, Button, timeAgo } from "@/components/ui";
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
@@ -22,6 +23,8 @@ const NAV = [
   { href: "/calendar", label: "Calendário", icon: CalendarDays, badge: "scheduled" as const },
   { href: "/media", label: "Biblioteca", icon: Images },
   { href: "/inbox", label: "Caixa de Entrada", icon: Inbox, badge: "inboxUnread" as const },
+  { section: "Inteligência" },
+  { href: "/studio", label: "IA & Automação", icon: BrainCircuit },
   { section: "Análise" },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { section: "Gestão" },
@@ -34,6 +37,7 @@ const TITLES: Record<string, string> = {
   "/calendar": "Calendário",
   "/media": "Biblioteca de Mídia",
   "/inbox": "Caixa de Entrada",
+  "/studio": "IA & Automação",
   "/analytics": "Analytics",
   "/clients": "Clientes",
   "/team": "Equipe",
@@ -410,7 +414,7 @@ function Shortcuts() {
       if (e.key === "g") { gPending = true; clearTimeout(gTimer); gTimer = setTimeout(() => (gPending = false), 800); return; }
       if (gPending) {
         gPending = false;
-        const map: Record<string, string> = { d: "/dashboard", c: "/calendar", m: "/media", i: "/inbox", a: "/analytics", u: "/clients", t: "/team" };
+        const map: Record<string, string> = { d: "/dashboard", c: "/calendar", m: "/media", i: "/inbox", s: "/studio", a: "/analytics", u: "/clients", t: "/team" };
         if (map[e.key]) router.push(map[e.key]);
       }
     };

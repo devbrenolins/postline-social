@@ -374,3 +374,65 @@ export const webhooks = pgTable(
   },
   (t) => [index("webhooks_workspace_idx").on(t.workspaceId)]
 );
+
+/* ------------------------------------------------------------------ */
+/*  AI studio, competitor tracking & direct automation                */
+/* ------------------------------------------------------------------ */
+
+export const directAutomations = pgTable(
+  "direct_automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 160 }).notNull(),
+    platform: varchar("platform", { length: 24 }).$type<Platform>().notNull().default("instagram"),
+    triggerKeywords: jsonb("trigger_keywords").$type<string[]>().notNull().default([]),
+    responseTemplate: text("response_template").notNull(),
+    active: boolean("active").notNull().default(true),
+    sentCount: integer("sent_count").notNull().default(0),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("direct_automations_workspace_idx").on(t.workspaceId)]
+);
+
+export const competitors = pgTable(
+  "competitors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 160 }).notNull(),
+    handle: varchar("handle", { length: 160 }).notNull(),
+    platform: varchar("platform", { length: 24 }).$type<Platform>().notNull().default("instagram"),
+    active: boolean("active").notNull().default(true),
+    lastAnalysis: text("last_analysis"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("competitors_workspace_idx").on(t.workspaceId)]
+);
+
+export const aiGenerations = pgTable(
+  "ai_generations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    kind: varchar("kind", { length: 32 }).notNull(),
+    prompt: text("prompt").notNull(),
+    resultText: text("result_text"),
+    model: varchar("model", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_generations_workspace_idx").on(t.workspaceId), index("ai_generations_kind_idx").on(t.kind)]
+);
