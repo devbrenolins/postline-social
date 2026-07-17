@@ -244,7 +244,7 @@ export function Segmented<T extends string>({ options, value, onChange, classNam
   options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; className?: string;
 }) {
   return (
-    <div className={cn("inline-flex items-center gap-0.5 rounded-xl border border-border bg-surface p-1", className)} role="tablist">
+    <div className={cn("inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl border border-border bg-surface p-1", className)} role="tablist">
       {options.map((o) => (
         <button
           key={o.value} role="tab" aria-selected={value === o.value}

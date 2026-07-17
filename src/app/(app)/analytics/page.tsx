@@ -74,7 +74,7 @@ export default function AnalyticsPage() {
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 sm:ml-auto sm:w-auto">
           <Segmented value={days} onChange={setDays} options={[{ value: "7", label: "7d" }, { value: "30", label: "30d" }, { value: "75", label: "75d" }]} />
           <Button variant="outline" size="sm" onClick={() => exportCSV(",")}><Download size={13} /> CSV</Button>
           <Button variant="outline" size="sm" onClick={() => exportCSV(";")}><FileSpreadsheet size={13} /> Excel</Button>
