@@ -3,7 +3,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { aiGenerations, competitors, directAutomations } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
-import { AiConfigurationError, generateImage, generateText } from "@/lib/openai";
+import { AiConfigurationError, generateImage, generateText, type ReferenceImage } from "@/lib/openai";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 
 function errorResponse(error: unknown) {
@@ -11,14 +11,31 @@ function errorResponse(error: unknown) {
   return NextResponse.json({ error: message }, { status: error instanceof AiConfigurationError ? 503 : 500 });
 }
 
+function todayKey() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bahia", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function referenceImages(value: unknown): ReferenceImage[] {
+  if (!Array.isArray(value)) return [];
+  const rows = value.slice(0, 3).map((item) => ({
+    name: String(item?.name ?? "referencia"),
+    type: String(item?.type ?? ""),
+    dataUrl: String(item?.dataUrl ?? ""),
+  })).filter((item) => /^data:image\/(png|jpeg|webp);base64,/.test(item.dataUrl));
+  if (rows.reduce((total, item) => total + item.dataUrl.length, 0) > 5_500_000) throw new Error("Os anexos ultrapassam o limite total de 4 MB.");
+  return rows;
+}
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   const wid = user.workspaceId;
-  const [automationRows, competitorRows, history] = await Promise.all([
+  const dailyKind = `daily_trends:${todayKey()}`;
+  const [automationRows, competitorRows, history, dailyRows] = await Promise.all([
     db.select().from(directAutomations).where(and(eq(directAutomations.workspaceId, wid), isNull(directAutomations.deletedAt))).orderBy(desc(directAutomations.createdAt)),
     db.select().from(competitors).where(and(eq(competitors.workspaceId, wid), isNull(competitors.deletedAt))).orderBy(desc(competitors.createdAt)),
     db.select().from(aiGenerations).where(eq(aiGenerations.workspaceId, wid)).orderBy(desc(aiGenerations.createdAt)).limit(12),
+    db.select().from(aiGenerations).where(and(eq(aiGenerations.workspaceId, wid), eq(aiGenerations.kind, dailyKind))).orderBy(desc(aiGenerations.createdAt)).limit(1),
   ]);
   return NextResponse.json({
     status: {
@@ -30,6 +47,7 @@ export async function GET() {
     automations: automationRows,
     competitors: competitorRows,
     history,
+    dailyTrend: dailyRows[0] ? { text: dailyRows[0].resultText, updatedAt: dailyRows[0].createdAt } : null,
   });
 }
 
@@ -44,9 +62,12 @@ export async function POST(req: NextRequest) {
       const topic = String(body.topic ?? "").trim();
       if (!topic) return NextResponse.json({ error: "Informe o tema do roteiro." }, { status: 400 });
       const input = `Tema: ${topic}\nNicho: ${body.niche || "geral"}\nPlataforma: ${body.platform || "Instagram"}\nDuração: ${body.duration || "45 segundos"}\nTom: ${body.tone || "envolvente"}`;
+      const references = referenceImages(body.references);
       const result = await generateText(
         "Você é um estrategista brasileiro de social media. Crie um roteiro pronto para gravação, em português do Brasil, com gancho, cenas numeradas, fala, texto na tela, indicação visual e CTA. Seja específico e não invente dados factuais.",
-        input
+        `${input}${references.length ? "\nUse as imagens anexadas como referências comparativas e de direção. Explique claramente como elas influenciaram o resultado, sem copiar marcas ou identidade protegida." : ""}`,
+        false,
+        references
       );
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "script", prompt: input, resultText: result.text, model: result.model });
       return NextResponse.json(result);
@@ -56,10 +77,21 @@ export async function POST(req: NextRequest) {
       const prompt = String(body.prompt ?? "").trim();
       if (!prompt) return NextResponse.json({ error: "Descreva o criativo." }, { status: 400 });
       const size = (["1024x1024", "1024x1536", "1536x1024"].includes(body.size) ? body.size : "1024x1024") as "1024x1024" | "1024x1536" | "1536x1024";
-      const enriched = `Crie um criativo profissional para redes sociais. ${prompt}. Identidade visual: ${body.style || "contemporânea, sofisticada e limpa"}. Evite marcas d'água e textos ilegíveis.`;
-      const result = await generateImage(enriched, size);
+      const references = referenceImages(body.references);
+      const enriched = `Crie um criativo profissional para redes sociais. ${prompt}. Identidade visual: ${body.style || "contemporânea, sofisticada e limpa"}. ${references.length ? "Use as imagens anexadas como influência visual e comparativa, preservando apenas os elementos solicitados e sem copiar marcas." : ""} Evite marcas d'água e textos ilegíveis.`;
+      const result = await generateImage(enriched, size, references);
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: enriched, resultText: "Criativo gerado", model: result.model });
       return NextResponse.json(result);
+    }
+
+    if (body.action === "dailyTrends") {
+      const kind = `daily_trends:${todayKey()}`;
+      const [cached] = await db.select().from(aiGenerations).where(and(eq(aiGenerations.workspaceId, wid), eq(aiGenerations.kind, kind))).orderBy(desc(aiGenerations.createdAt)).limit(1);
+      if (cached?.resultText) return NextResponse.json({ text: cached.resultText, model: cached.model, cached: true, updatedAt: cached.createdAt });
+      const query = "Pesquise as tendências gerais de hoje no Brasil para redes sociais, sem limitar a um nicho. Cubra assuntos em alta, formatos, memes, comportamentos, áudios e oportunidades relevantes para Instagram, TikTok, YouTube e buscas. Entregue um resumo executivo, sinais observados, 8 oportunidades acionáveis e links de fontes atuais. Não invente popularidade nem métricas.";
+      const result = await generateText("Você é um radar diário de tendências digitais. Use pesquisa na web, dê prioridade ao que é atual, informe a data, cite fontes e separe fatos de sugestões em português do Brasil.", query, true);
+      const [saved] = await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind, prompt: query, resultText: result.text, model: result.model }).returning();
+      return NextResponse.json({ ...result, cached: false, updatedAt: saved.createdAt });
     }
 
     if (["trends", "music"].includes(body.action)) {

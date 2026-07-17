@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Bot, CheckCircle2, Download, ImageIcon, Loader2, MessageCircle, Music2,
-  Plus, Radar, Sparkles, Trash2, TrendingUp, Video, WandSparkles,
+  Paperclip, Plus, Radar, Sparkles, Trash2, TrendingUp, Video, WandSparkles, X,
 } from "lucide-react";
 import { Badge, Button, InlineError, Segmented, Switch, cn, inputCls, labelCls } from "@/components/ui";
 import { toast } from "sonner";
@@ -11,10 +11,12 @@ import { toast } from "sonner";
 type Tab = "script" | "creative" | "direct" | "intelligence";
 type Automation = { id: string; name: string; triggerKeywords: string[]; responseTemplate: string; active: boolean; sentCount: number };
 type Competitor = { id: string; name: string; handle: string; platform: string; lastCheckedAt: string | null };
+type ReferenceImage = { name: string; type: string; dataUrl: string };
 type StudioData = {
   status: { openai: boolean; meta: boolean; textModel: string; imageModel: string };
   automations: Automation[];
   competitors: Competitor[];
+  dailyTrend: { text: string; updatedAt: string } | null;
 };
 
 async function callStudio(body: Record<string, unknown>) {
@@ -79,9 +81,10 @@ function ScriptGenerator({ configured }: { configured: boolean }) {
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [references, setReferences] = useState<ReferenceImage[]>([]);
   async function generate() {
     setLoading(true); setError("");
-    try { const data = await callStudio({ action: "generateScript", ...form }); setResult(data.text); toast.success("Roteiro criado."); }
+    try { const data = await callStudio({ action: "generateScript", ...form, references }); setResult(data.text); toast.success("Roteiro criado."); }
     catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar roteiro."); }
     finally { setLoading(false); }
   }
@@ -92,6 +95,7 @@ function ScriptGenerator({ configured }: { configured: boolean }) {
       <Field label="Nicho"><input className={inputCls} value={form.niche} onChange={(e) => setForm({ ...form, niche: e.target.value })} placeholder="Ex.: skincare premium" /></Field>
       <div className="grid gap-3 sm:grid-cols-2"><Field label="Formato"><select className={inputCls} value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}><option>Instagram Reels</option><option>TikTok</option><option>YouTube Shorts</option><option>Carrossel</option></select></Field><Field label="Duração"><select className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })}><option>15 segundos</option><option>30 segundos</option><option>45 segundos</option><option>60 segundos</option></select></Field></div>
       <Field label="Tom"><input className={inputCls} value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })} /></Field>
+      <ReferencePicker value={references} onChange={setReferences} />
       {error && <InlineError>{error}</InlineError>}
       <Button className="w-full" onClick={generate} disabled={!configured || !form.topic.trim()} loading={loading}><WandSparkles size={16} /> Gerar roteiro completo</Button>
     </Panel>
@@ -102,22 +106,57 @@ function ScriptGenerator({ configured }: { configured: boolean }) {
 function CreativeGenerator({ configured }: { configured: boolean }) {
   const [prompt, setPrompt] = useState(""); const [style, setStyle] = useState("Editorial sofisticado, luz natural, cores da marca");
   const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
-  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size }); setImage(data.dataUrl); toast.success("Criativo gerado."); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
+  const [references, setReferences] = useState<ReferenceImage[]>([]);
+  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); toast.success("Criativo gerado."); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
       {!configured && <ConnectionWarning provider="OpenAI" />}
       <Field label="O que você quer criar?"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ex.: foto publicitária de um sérum botânico sobre pedra rosada, folhas ao redor..." /></Field>
       <Field label="Estilo visual"><input className={inputCls} value={style} onChange={(e) => setStyle(e.target.value)} /></Field>
       <Field label="Formato"><select className={inputCls} value={size} onChange={(e) => setSize(e.target.value)}><option value="1024x1024">Feed quadrado — 1:1</option><option value="1024x1536">Story / vertical — 2:3</option><option value="1536x1024">Paisagem — 3:2</option></select></Field>
+      <ReferencePicker value={references} onChange={setReferences} />
       {error && <InlineError>{error}</InlineError>}
       <Button className="w-full" onClick={generate} disabled={!configured || !prompt.trim()} loading={loading}><Sparkles size={16} /> Gerar criativo</Button>
     </Panel>
     <Panel title="Prévia" icon={<WandSparkles size={17} />}>
       <div className="flex min-h-110 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-border-strong bg-surface-2/40">
-        {loading ? <div className="text-center text-muted"><Loader2 className="mx-auto mb-3 animate-spin" /><p className="text-[13px]">Criando a imagem...</p></div> : image ? <img src={image} alt="Criativo gerado por IA" className="max-h-130 w-full object-contain" /> : <div className="max-w-xs text-center text-muted"><ImageIcon className="mx-auto mb-3 opacity-40" size={36} /><p className="text-[13px]">Seu criativo aparecerá aqui.</p></div>}
+        {loading ? <div className="text-center text-muted"><Loader2 className="mx-auto mb-3 animate-spin" /><p className="text-[13px]">Criando a imagem...</p></div> : image ? <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={image} alt="Criativo gerado por IA" className="max-h-130 w-full object-contain" />
+        </> : <div className="max-w-xs text-center text-muted"><ImageIcon className="mx-auto mb-3 opacity-40" size={36} /><p className="text-[13px]">Seu criativo aparecerá aqui.</p></div>}
       </div>
       {image && <Button variant="outline" className="w-full" onClick={() => { const a = document.createElement("a"); a.href = image; a.download = `postline-criativo-${Date.now()}.png`; a.click(); }}><Download size={15} /> Baixar PNG</Button>}
     </Panel>
+  </div>;
+}
+
+function ReferencePicker({ value, onChange }: { value: ReferenceImage[]; onChange: (value: ReferenceImage[]) => void }) {
+  async function add(files: FileList | null) {
+    if (!files) return;
+    const selected = Array.from(files).slice(0, Math.max(0, 3 - value.length));
+    const valid = selected.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) && file.size <= 1_250_000);
+    if (valid.length !== selected.length) toast.error("Use PNG, JPG ou WebP de até 1,2 MB por imagem.");
+    const rows = await Promise.all(valid.map((file) => new Promise<ReferenceImage>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, type: file.type, dataUrl: String(reader.result) });
+      reader.onerror = () => reject(new Error("Não foi possível ler o anexo."));
+      reader.readAsDataURL(file);
+    })));
+    onChange([...value, ...rows].slice(0, 3));
+  }
+  return <div>
+    <span className={labelCls}>Referências para comparar e influenciar o resultado <span className="font-normal text-muted">(opcional)</span></span>
+    <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-4 py-3 text-[12px] font-medium text-muted transition hover:border-accent/40 hover:text-accent">
+      <Paperclip size={15} /> Anexar imagens de referência
+      <input type="file" accept="image/png,image/jpeg,image/webp" multiple className="hidden" onChange={(event) => { void add(event.target.files); event.target.value = ""; }} disabled={value.length >= 3} />
+    </label>
+    {value.length > 0 && <div className="mt-2 grid grid-cols-3 gap-2">{value.map((item, index) => <div key={`${item.name}-${index}`} className="group relative overflow-hidden rounded-xl border border-border bg-surface-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={item.dataUrl} alt={`Referência ${index + 1}`} className="aspect-square w-full object-cover" />
+      <button type="button" onClick={() => onChange(value.filter((_, i) => i !== index))} className="absolute right-1 top-1 rounded-full bg-black/65 p-1 text-white" aria-label={`Remover ${item.name}`}><X size={12} /></button>
+      <p className="truncate px-2 py-1 text-[10px] text-muted">{item.name}</p>
+    </div>)}</div>}
+    <p className="mt-1.5 text-[10.5px] text-muted">Até 3 imagens PNG, JPG ou WebP. A IA analisará composição, estilo e elementos visuais.</p>
   </div>;
 }
 
@@ -142,21 +181,28 @@ function DirectAutomation({ data, reload }: { data: StudioData | null; reload: (
 }
 
 function Intelligence({ data, reload }: { data: StudioData | null; reload: () => void }) {
-  const [mode, setMode] = useState<"trends" | "music" | "competitors">("trends"); const [niche, setNiche] = useState(""); const [platform, setPlatform] = useState("Instagram e TikTok"); const [result, setResult] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
+  const [mode, setMode] = useState<"daily" | "trends" | "music" | "competitors">("daily"); const [niche, setNiche] = useState(""); const [platform, setPlatform] = useState("Instagram e TikTok"); const [result, setResult] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [dailyRequested, setDailyRequested] = useState(false);
   const [competitor, setCompetitor] = useState({ name: "", handle: "", platform: "instagram" });
-  async function research() { setLoading(true); setError(""); try { const payload = mode === "competitors" ? { action: "analyzeCompetitors" } : { action: mode, niche, platform }; const response = await callStudio(payload); setResult(response.text); toast.success("Pesquisa atualizada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setLoading(false); } }
+  async function research(target = mode) { setLoading(true); setError(""); try { const payload = target === "daily" ? { action: "dailyTrends" } : target === "competitors" ? { action: "analyzeCompetitors" } : { action: target, niche, platform }; const response = await callStudio(payload); setResult(response.text); if (target !== "daily" || !response.cached) toast.success(target === "daily" ? "Tendências do dia carregadas." : "Pesquisa atualizada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setLoading(false); } }
   async function addCompetitor() { try { await callStudio({ action: "createCompetitor", ...competitor }); setCompetitor({ name: "", handle: "", platform: "instagram" }); await reload(); } catch (e) { toast.error(e instanceof Error ? e.message : "Erro."); } }
   async function remove(id: string) { await callStudio({ action: "deleteCompetitor", id }); await reload(); }
+  useEffect(() => {
+    if (mode !== "daily" || !data || dailyRequested) return;
+    if (data.dailyTrend?.text) { setResult(data.dailyTrend.text); setDailyRequested(true); return; }
+    if (data.status.openai) { setDailyRequested(true); void research("daily"); }
+  // A primeira abertura do radar em cada sessão dispara no máximo uma leitura/geração diária.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, mode, dailyRequested]);
   return <div className="space-y-5">
-    <Segmented value={mode} onChange={(value) => { setMode(value); setResult(""); setError(""); }} options={[{ value: "trends", label: "Trend topics" }, { value: "music", label: "Músicas em alta" }, { value: "competitors", label: "Concorrentes" }]} />
+    <Segmented value={mode} onChange={(value) => { setMode(value); setResult(value === "daily" ? data?.dailyTrend?.text ?? "" : ""); setError(""); }} options={[{ value: "daily", label: "Tendências do dia" }, { value: "trends", label: "Buscar por nicho" }, { value: "music", label: "Músicas em alta" }, { value: "competitors", label: "Concorrentes" }]} />
     <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
-      <Panel title={mode === "trends" ? "Radar de tendências" : mode === "music" ? "Radar de áudios" : "Monitoramento competitivo"} icon={mode === "trends" ? <TrendingUp size={17} /> : mode === "music" ? <Music2 size={17} /> : <Radar size={17} />}>
+      <Panel title={mode === "daily" ? "Panorama geral de hoje" : mode === "trends" ? "Radar por nicho" : mode === "music" ? "Radar de áudios" : "Monitoramento competitivo"} icon={mode === "daily" || mode === "trends" ? <TrendingUp size={17} /> : mode === "music" ? <Music2 size={17} /> : <Radar size={17} />}>
         {!data?.status.openai && <ConnectionWarning provider="OpenAI" />}
-        {mode !== "competitors" ? <><Field label="Nicho"><input className={inputCls} value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Ex.: cafeterias especiais em Salvador" /></Field><Field label="Redes prioritárias"><input className={inputCls} value={platform} onChange={(e) => setPlatform(e.target.value)} /></Field></> : <><div className="grid gap-2 sm:grid-cols-[1fr_1fr_120px]"><input className={inputCls} value={competitor.name} onChange={(e) => setCompetitor({ ...competitor, name: e.target.value })} placeholder="Nome" /><input className={inputCls} value={competitor.handle} onChange={(e) => setCompetitor({ ...competitor, handle: e.target.value })} placeholder="@perfil" /><select className={inputCls} value={competitor.platform} onChange={(e) => setCompetitor({ ...competitor, platform: e.target.value })}><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option></select></div><Button variant="outline" className="w-full" onClick={addCompetitor} disabled={!competitor.name || !competitor.handle}><Plus size={15} /> Adicionar concorrente</Button><div className="space-y-2">{(data?.competitors ?? []).map((c) => <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border px-3 py-2"><Radar size={14} className="text-accent" /><span className="flex-1 text-[12.5px]"><b>{c.name}</b> · @{c.handle}</span><button onClick={() => remove(c.id)} className="text-muted hover:text-danger"><Trash2 size={14} /></button></div>)}</div></>}
+        {mode === "daily" ? <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-4"><p className="text-[13px] font-semibold">Resumo geral, sem filtro de nicho</p><p className="mt-1 text-[11.5px] leading-5 text-muted">Atualizado automaticamente uma vez por dia e exibido assim que você abre o radar. A mesma análise é reutilizada durante o dia para controlar custos.</p>{data?.dailyTrend?.updatedAt && <p className="mt-2 text-[10.5px] text-muted">Última atualização: {new Date(data.dailyTrend.updatedAt).toLocaleString("pt-BR")}</p>}</div> : mode !== "competitors" ? <><Field label="Nicho"><input className={inputCls} value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Ex.: cafeterias especiais em Salvador" /></Field><Field label="Redes prioritárias"><input className={inputCls} value={platform} onChange={(e) => setPlatform(e.target.value)} /></Field></> : <><div className="grid gap-2 sm:grid-cols-[1fr_1fr_120px]"><input className={inputCls} value={competitor.name} onChange={(e) => setCompetitor({ ...competitor, name: e.target.value })} placeholder="Nome" /><input className={inputCls} value={competitor.handle} onChange={(e) => setCompetitor({ ...competitor, handle: e.target.value })} placeholder="@perfil" /><select className={inputCls} value={competitor.platform} onChange={(e) => setCompetitor({ ...competitor, platform: e.target.value })}><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option></select></div><Button variant="outline" className="w-full" onClick={addCompetitor} disabled={!competitor.name || !competitor.handle}><Plus size={15} /> Adicionar concorrente</Button><div className="space-y-2">{(data?.competitors ?? []).map((c) => <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border px-3 py-2"><Radar size={14} className="text-accent" /><span className="flex-1 text-[12.5px]"><b>{c.name}</b> · @{c.handle}</span><button onClick={() => remove(c.id)} className="text-muted hover:text-danger"><Trash2 size={14} /></button></div>)}</div></>}
         {error && <InlineError>{error}</InlineError>}
-        <Button className="w-full" onClick={research} loading={loading} disabled={!data?.status.openai || (mode !== "competitors" ? !niche : !(data?.competitors.length))}><Radar size={16} /> Pesquisar agora</Button>
+        <Button className="w-full" onClick={() => research()} loading={loading} disabled={!data?.status.openai || (mode !== "daily" && mode !== "competitors" ? !niche : mode === "competitors" ? !(data?.competitors.length) : false)}><Radar size={16} /> {mode === "daily" ? "Carregar panorama de hoje" : "Pesquisar agora"}</Button>
       </Panel>
-      <ResultPanel title="Inteligência acionável" empty="A pesquisa usa fontes públicas atuais e entrega oportunidades prontas para o calendário." result={result} loading={loading} />
+      <ResultPanel title={mode === "daily" ? "Tendências gerais do dia" : "Inteligência acionável"} empty={mode === "daily" ? "O panorama de hoje será carregado automaticamente." : "A pesquisa usa fontes públicas atuais e entrega oportunidades prontas para o calendário."} result={result} loading={loading} />
     </div>
   </div>;
 }

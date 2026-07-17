@@ -193,7 +193,7 @@ function MonthView({ cursor, posts, onSelect, onDropPost, onNew, dragOverDay, se
                 </span>
                 <button
                   onClick={() => onNew(iso)}
-                  className="rounded-md p-1 text-muted opacity-0 transition hover:bg-accent-soft hover:text-accent group-hover:opacity-100"
+                  className="rounded-md border border-border bg-surface p-1 text-muted opacity-100 shadow-sm transition hover:border-accent/40 hover:bg-accent-soft hover:text-accent sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                   aria-label={`Nova publicação em ${format(d, "dd/MM")}`}
                 >
                   <Plus size={13} />

@@ -8,11 +8,12 @@ function apiKey() {
   return key;
 }
 
-async function openAiRequest(path: string, body: Record<string, unknown>) {
+async function openAiRequest(path: string, body: Record<string, unknown> | FormData) {
+  const isFormData = body instanceof FormData;
   const response = await fetch(`${OPENAI_API_URL}${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey()}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: { Authorization: `Bearer ${apiKey()}`, ...(!isFormData ? { "Content-Type": "application/json" } : {}) },
+    body: isFormData ? body : JSON.stringify(body),
     cache: "no-store",
   });
   const data = await response.json();
@@ -32,12 +33,20 @@ function responseText(data: { output?: Array<{ content?: Array<{ type?: string; 
     .trim();
 }
 
-export async function generateText(instructions: string, input: string, useWeb = false) {
+export type ReferenceImage = { name: string; type: string; dataUrl: string };
+
+export async function generateText(instructions: string, input: string, useWeb = false, references: ReferenceImage[] = []) {
   const model = process.env.OPENAI_TEXT_MODEL || "gpt-5.6-luna";
   const data = await openAiRequest("/responses", {
     model,
     instructions,
-    input,
+    input: references.length ? [{
+      role: "user",
+      content: [
+        { type: "input_text", text: input },
+        ...references.map((reference) => ({ type: "input_image", image_url: reference.dataUrl })),
+      ],
+    }] : input,
     ...(useWeb ? { tools: [{ type: "web_search" }] } : {}),
   });
   const text = responseText(data);
@@ -45,15 +54,30 @@ export async function generateText(instructions: string, input: string, useWeb =
   return { text, model };
 }
 
-export async function generateImage(prompt: string, size: "1024x1024" | "1024x1536" | "1536x1024") {
+function dataUrlToBlob(dataUrl: string) {
+  const match = dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
+  if (!match) throw new Error("Formato de imagem de referência inválido.");
+  return { blob: new Blob([Buffer.from(match[2], "base64")], { type: match[1] }), type: match[1] };
+}
+
+export async function generateImage(prompt: string, size: "1024x1024" | "1024x1536" | "1536x1024", references: ReferenceImage[] = []) {
   const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
-  const data = await openAiRequest("/images/generations", {
-    model,
-    prompt,
-    size,
-    quality: "medium",
-    output_format: "png",
-  });
+  let data;
+  if (references.length) {
+    const form = new FormData();
+    form.set("model", model);
+    form.set("prompt", prompt);
+    form.set("size", size);
+    form.set("quality", "medium");
+    form.set("output_format", "png");
+    references.forEach((reference, index) => {
+      const { blob, type } = dataUrlToBlob(reference.dataUrl);
+      form.append("image[]", blob, reference.name || `referencia-${index + 1}.${type.split("/")[1]}`);
+    });
+    data = await openAiRequest("/images/edits", form);
+  } else {
+    data = await openAiRequest("/images/generations", { model, prompt, size, quality: "medium", output_format: "png" });
+  }
   const base64 = data?.data?.[0]?.b64_json;
   if (!base64) throw new Error("A IA não retornou a imagem. Tente novamente.");
   return { dataUrl: `data:image/png;base64,${base64}`, model };
