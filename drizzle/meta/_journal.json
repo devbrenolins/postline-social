@@ -15,6 +15,13 @@
       "when": 1784315197611,
       "tag": "0001_nostalgic_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784318792204,
+      "tag": "0002_optimal_black_knight",
+      "breakpoints": true
     }
   ]
 }

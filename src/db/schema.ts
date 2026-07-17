@@ -432,6 +432,8 @@ export const aiGenerations = pgTable(
     prompt: text("prompt").notNull(),
     resultText: text("result_text"),
     model: varchar("model", { length: 80 }).notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("ai_generations_workspace_idx").on(t.workspaceId), index("ai_generations_kind_idx").on(t.kind)]

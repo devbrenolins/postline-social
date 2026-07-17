@@ -33,6 +33,15 @@ function responseText(data: { output?: Array<{ content?: Array<{ type?: string; 
     .trim();
 }
 
+type OpenAiUsage = { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+
+function usageOf(data: { usage?: OpenAiUsage }, fallbackInput = 0, fallbackOutput = 0) {
+  const inputTokens = Math.max(0, Number(data.usage?.input_tokens ?? fallbackInput) || 0);
+  const outputTokens = Math.max(0, Number(data.usage?.output_tokens ?? fallbackOutput) || 0);
+  const totalTokens = Math.max(inputTokens + outputTokens, Number(data.usage?.total_tokens ?? 0) || 0);
+  return { inputTokens, outputTokens, totalTokens, credits: totalTokens / 100_000 };
+}
+
 export type ReferenceImage = { name: string; type: string; dataUrl: string };
 
 export async function generateText(instructions: string, input: string, useWeb = false, references: ReferenceImage[] = []) {
@@ -51,7 +60,9 @@ export async function generateText(instructions: string, input: string, useWeb =
   });
   const text = responseText(data);
   if (!text) throw new Error("A IA não retornou conteúdo. Tente novamente.");
-  return { text, model };
+  const approximateInput = Math.ceil((instructions.length + input.length) / 4);
+  const approximateOutput = Math.ceil(text.length / 4);
+  return { text, model, usage: usageOf(data, approximateInput, approximateOutput) };
 }
 
 function dataUrlToBlob(dataUrl: string) {
@@ -80,5 +91,5 @@ export async function generateImage(prompt: string, size: "1024x1024" | "1024x15
   }
   const base64 = data?.data?.[0]?.b64_json;
   if (!base64) throw new Error("A IA não retornou a imagem. Tente novamente.");
-  return { dataUrl: `data:image/png;base64,${base64}`, model };
+  return { dataUrl: `data:image/png;base64,${base64}`, model, usage: usageOf(data, 0, 12_000) };
 }

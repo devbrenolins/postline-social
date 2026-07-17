@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Bot, CheckCircle2, Download, ImageIcon, Loader2, MessageCircle, Music2,
+  Bot, Check, CheckCircle2, Coins, Download, FolderOpen, ImageIcon, Loader2, MessageCircle, Music2,
   Paperclip, Plus, Radar, Sparkles, Trash2, TrendingUp, Video, WandSparkles, X,
 } from "lucide-react";
 import { Badge, Button, InlineError, Segmented, Switch, cn, inputCls, labelCls } from "@/components/ui";
@@ -11,12 +11,14 @@ import { toast } from "sonner";
 type Tab = "script" | "creative" | "direct" | "intelligence";
 type Automation = { id: string; name: string; triggerKeywords: string[]; responseTemplate: string; active: boolean; sentCount: number };
 type Competitor = { id: string; name: string; handle: string; platform: string; lastCheckedAt: string | null };
-type ReferenceImage = { name: string; type: string; dataUrl: string };
+type ReferenceImage = { name: string; type: string; dataUrl?: string; mediaId?: string; previewUrl?: string };
+type CreditBucket = { used: number; remaining: number; dailyCredits: number; dailyGenerations: number; generations: number; reserveTokens: number; tokensUsed: number; label: string };
 type StudioData = {
   status: { openai: boolean; meta: boolean; textModel: string; imageModel: string };
   automations: Automation[];
   competitors: Competitor[];
   dailyTrend: { text: string; updatedAt: string } | null;
+  credits: { conversion: string; script: CreditBucket; creative: CreditBucket };
 };
 
 async function callStudio(body: Record<string, unknown>) {
@@ -49,6 +51,8 @@ export default function StudioPage() {
         </div>
       </div>
 
+      {data?.credits && <CreditOverview credits={data.credits} />}
+
       <div className="overflow-x-auto pb-1">
         <Segmented value={tab} onChange={setTab} options={[
           { value: "script", label: "Roteiros com IA" },
@@ -58,12 +62,25 @@ export default function StudioPage() {
         ]} />
       </div>
 
-      {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.openai)} />}
-      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.openai)} />}
+      {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.openai)} reload={load} />}
+      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.openai)} reload={load} />}
       {tab === "direct" && <DirectAutomation data={data} reload={load} />}
       {tab === "intelligence" && <Intelligence data={data} reload={load} />}
     </div>
   );
+}
+
+function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
+  const fmtCredits = (value: number) => value.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+  const items = [{ name: "Roteiros", bucket: credits.script }, { name: "Criativos", bucket: credits.creative }];
+  return <section className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Coins size={16} className="text-accent" /><h3 className="text-[13.5px] font-semibold">Créditos Postline de hoje</h3></div><Badge>{credits.conversion}</Badge></div>
+    <div className="grid gap-3 sm:grid-cols-2">{items.map(({ name, bucket }) => { const percent = Math.min(100, Math.round((bucket.used / bucket.dailyCredits) * 100)); return <div key={name} className="rounded-xl bg-surface-2/60 p-3">
+      <div className="flex items-center justify-between gap-2"><p className="text-[12px] font-semibold">{name}</p><span className="text-[11px] text-muted">{bucket.generations}/{bucket.dailyGenerations} gerações</span></div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div>
+      <div className="mt-1.5 flex justify-between text-[10.5px] text-muted"><span>{fmtCredits(bucket.used)} usados</span><span>{fmtCredits(bucket.remaining)} restantes</span></div>
+    </div>; })}</div>
+  </section>;
 }
 
 function StatusPill({ ok, label }: { ok?: boolean; label: string }) {
@@ -76,7 +93,7 @@ function ConnectionWarning({ provider }: { provider: "OpenAI" | "Meta" }) {
   return <InlineError>{provider === "OpenAI" ? "Adicione OPENAI_API_KEY nas variáveis da Vercel para usar este recurso." : "Conecte as credenciais da Meta e configure o webhook para enviar directs reais."}</InlineError>;
 }
 
-function ScriptGenerator({ configured }: { configured: boolean }) {
+function ScriptGenerator({ configured, reload }: { configured: boolean; reload: () => void }) {
   const [form, setForm] = useState({ topic: "", niche: "", platform: "Instagram Reels", duration: "45 segundos", tone: "Dinâmico e educativo" });
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
@@ -84,7 +101,7 @@ function ScriptGenerator({ configured }: { configured: boolean }) {
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   async function generate() {
     setLoading(true); setError("");
-    try { const data = await callStudio({ action: "generateScript", ...form, references }); setResult(data.text); toast.success("Roteiro criado."); }
+    try { const data = await callStudio({ action: "generateScript", ...form, references }); setResult(data.text); await reload(); toast.success(`Roteiro criado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); }
     catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar roteiro."); }
     finally { setLoading(false); }
   }
@@ -103,18 +120,18 @@ function ScriptGenerator({ configured }: { configured: boolean }) {
   </div>;
 }
 
-function CreativeGenerator({ configured }: { configured: boolean }) {
+function CreativeGenerator({ configured, reload }: { configured: boolean; reload: () => void }) {
   const [prompt, setPrompt] = useState(""); const [style, setStyle] = useState("Editorial sofisticado, luz natural, cores da marca");
   const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
-  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); toast.success("Criativo gerado."); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
+  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); await reload(); toast.success(`Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
       {!configured && <ConnectionWarning provider="OpenAI" />}
       <Field label="O que você quer criar?"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ex.: foto publicitária de um sérum botânico sobre pedra rosada, folhas ao redor..." /></Field>
       <Field label="Estilo visual"><input className={inputCls} value={style} onChange={(e) => setStyle(e.target.value)} /></Field>
       <Field label="Formato"><select className={inputCls} value={size} onChange={(e) => setSize(e.target.value)}><option value="1024x1024">Feed quadrado — 1:1</option><option value="1024x1536">Story / vertical — 2:3</option><option value="1536x1024">Paisagem — 3:2</option></select></Field>
-      <ReferencePicker value={references} onChange={setReferences} />
+      <ReferencePicker value={references} onChange={setReferences} allowLibrary />
       {error && <InlineError>{error}</InlineError>}
       <Button className="w-full" onClick={generate} disabled={!configured || !prompt.trim()} loading={loading}><Sparkles size={16} /> Gerar criativo</Button>
     </Panel>
@@ -130,7 +147,8 @@ function CreativeGenerator({ configured }: { configured: boolean }) {
   </div>;
 }
 
-function ReferencePicker({ value, onChange }: { value: ReferenceImage[]; onChange: (value: ReferenceImage[]) => void }) {
+function ReferencePicker({ value, onChange, allowLibrary = false }: { value: ReferenceImage[]; onChange: (value: ReferenceImage[]) => void; allowLibrary?: boolean }) {
+  const [libraryOpen, setLibraryOpen] = useState(false);
   async function add(files: FileList | null) {
     if (!files) return;
     const selected = Array.from(files).slice(0, Math.max(0, 3 - value.length));
@@ -138,7 +156,7 @@ function ReferencePicker({ value, onChange }: { value: ReferenceImage[]; onChang
     if (valid.length !== selected.length) toast.error("Use PNG, JPG ou WebP de até 1,2 MB por imagem.");
     const rows = await Promise.all(valid.map((file) => new Promise<ReferenceImage>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve({ name: file.name, type: file.type, dataUrl: String(reader.result) });
+      reader.onload = () => resolve({ name: file.name, type: file.type, dataUrl: String(reader.result), previewUrl: String(reader.result) });
       reader.onerror = () => reject(new Error("Não foi possível ler o anexo."));
       reader.readAsDataURL(file);
     })));
@@ -146,17 +164,34 @@ function ReferencePicker({ value, onChange }: { value: ReferenceImage[]; onChang
   }
   return <div>
     <span className={labelCls}>Referências para comparar e influenciar o resultado <span className="font-normal text-muted">(opcional)</span></span>
-    <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-4 py-3 text-[12px] font-medium text-muted transition hover:border-accent/40 hover:text-accent">
-      <Paperclip size={15} /> Anexar imagens de referência
+    <div className={cn("grid gap-2", allowLibrary && "sm:grid-cols-2")}><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-4 py-3 text-[12px] font-medium text-muted transition hover:border-accent/40 hover:text-accent">
+      <Paperclip size={15} /> Enviar do dispositivo
       <input type="file" accept="image/png,image/jpeg,image/webp" multiple className="hidden" onChange={(event) => { void add(event.target.files); event.target.value = ""; }} disabled={value.length >= 3} />
-    </label>
+    </label>{allowLibrary && <button type="button" onClick={() => setLibraryOpen(true)} disabled={value.length >= 3} className="flex items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-[12px] font-medium text-muted transition hover:border-accent/40 hover:text-accent disabled:opacity-50"><FolderOpen size={15} /> Escolher da biblioteca</button>}</div>
     {value.length > 0 && <div className="mt-2 grid grid-cols-3 gap-2">{value.map((item, index) => <div key={`${item.name}-${index}`} className="group relative overflow-hidden rounded-xl border border-border bg-surface-2">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={item.dataUrl} alt={`Referência ${index + 1}`} className="aspect-square w-full object-cover" />
+      <img src={item.previewUrl ?? item.dataUrl} alt={`Referência ${index + 1}`} className="aspect-square w-full object-cover" />
       <button type="button" onClick={() => onChange(value.filter((_, i) => i !== index))} className="absolute right-1 top-1 rounded-full bg-black/65 p-1 text-white" aria-label={`Remover ${item.name}`}><X size={12} /></button>
       <p className="truncate px-2 py-1 text-[10px] text-muted">{item.name}</p>
     </div>)}</div>}
     <p className="mt-1.5 text-[10.5px] text-muted">Até 3 imagens PNG, JPG ou WebP. A IA analisará composição, estilo e elementos visuais.</p>
+    {libraryOpen && <LibraryReferencePicker selected={value} onSelect={(item) => onChange([...value, item].slice(0, 3))} onClose={() => setLibraryOpen(false)} />}
+  </div>;
+}
+
+function LibraryReferencePicker({ selected, onSelect, onClose }: { selected: ReferenceImage[]; onSelect: (item: ReferenceImage) => void; onClose: () => void }) {
+  const [items, setItems] = useState<Array<{ id: string; name: string; url: string }>>([]); const [loading, setLoading] = useState(true);
+  useEffect(() => { fetch("/api/media?type=image&limit=30").then((response) => response.json()).then((data) => setItems(data.media ?? [])).catch(() => toast.error("Não foi possível abrir a biblioteca.")).finally(() => setLoading(false)); }, []);
+  const selectedIds = new Set(selected.map((item) => item.mediaId).filter(Boolean));
+  return <div className="fixed inset-0 z-60 flex items-end justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Biblioteca de referências">
+    <div className="flex max-h-[88dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl sm:rounded-2xl">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3"><FolderOpen size={16} className="text-accent" /><h3 className="text-[14px] font-semibold">Escolher da Biblioteca Postline</h3><span className="text-[11px] text-muted">{selected.length}/3</span><button onClick={onClose} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-surface-2" aria-label="Fechar biblioteca"><X size={16} /></button></div>
+      {loading ? <Loading /> : items.length === 0 ? <Empty icon={<ImageIcon />} text="Nenhuma imagem na biblioteca." /> : <div className="grid grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3 md:grid-cols-4">{items.map((item) => { const active = selectedIds.has(item.id); return <button key={item.id} type="button" disabled={active || selected.length >= 3} onClick={() => onSelect({ mediaId: item.id, name: item.name, type: "image/jpeg", previewUrl: item.url })} className={cn("relative overflow-hidden rounded-xl border text-left transition", active ? "border-accent ring-2 ring-accent/20" : "border-border hover:border-accent/50", selected.length >= 3 && !active && "opacity-45")}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={item.url} alt={item.name} className="aspect-square w-full object-cover" /><p className="truncate px-2 py-1.5 text-[10.5px]">{item.name}</p>{active && <span className="absolute right-2 top-2 rounded-full bg-accent p-1 text-white"><Check size={12} /></span>}
+      </button>; })}</div>}
+      <div className="border-t border-border p-3 text-right"><Button size="sm" onClick={onClose}>Concluir</Button></div>
+    </div>
   </div>;
 }
 
