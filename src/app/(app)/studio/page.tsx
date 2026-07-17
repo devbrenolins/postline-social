@@ -18,7 +18,7 @@ type StudioData = {
   automations: Automation[];
   competitors: Competitor[];
   dailyTrend: { text: string; updatedAt: string } | null;
-  credits: { conversion: string; script: CreditBucket; creative: CreditBucket };
+  credits: { script: CreditBucket; creative: CreditBucket };
 };
 
 async function callStudio(body: Record<string, unknown>) {
@@ -73,8 +73,8 @@ export default function StudioPage() {
 function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
   const fmtCredits = (value: number) => value.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 3 });
   const items = [{ name: "Roteiros", bucket: credits.script }, { name: "Criativos", bucket: credits.creative }];
-  return <section className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Coins size={16} className="text-accent" /><h3 className="text-[13.5px] font-semibold">Créditos Postline de hoje</h3></div><Badge>{credits.conversion}</Badge></div>
+  return <section id="creditos" className="scroll-mt-20 rounded-2xl border border-accent/25 bg-surface p-4 shadow-sm">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Coins size={16} className="text-accent" /><h3 className="text-[13.5px] font-semibold">Créditos Postline de hoje</h3></div><Badge>Renovação diária</Badge></div>
     <div className="grid gap-3 sm:grid-cols-2">{items.map(({ name, bucket }) => { const percent = Math.min(100, Math.round((bucket.used / bucket.dailyCredits) * 100)); return <div key={name} className="rounded-xl bg-surface-2/60 p-3">
       <div className="flex items-center justify-between gap-2"><p className="text-[12px] font-semibold">{name}</p><span className="text-[11px] text-muted">{bucket.generations}/{bucket.dailyGenerations} gerações</span></div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div>

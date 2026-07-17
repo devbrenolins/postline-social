@@ -63,7 +63,7 @@ async function dailyCredits(workspaceId: string) {
     const limit = CREDIT_LIMITS[kind];
     return { used, remaining: Math.max(0, limit.dailyCredits - used), tokensUsed, generations: matching.length, ...limit };
   };
-  return { conversion: "100 mil tokens = 1 crédito Postline", script: summarize("script"), creative: summarize("creative") };
+  return { script: summarize("script"), creative: summarize("creative") };
 }
 
 async function assertCreditAllowance(workspaceId: string, kind: "script" | "creative") {

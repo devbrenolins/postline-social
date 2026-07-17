@@ -9,7 +9,7 @@ import {
   LayoutDashboard, CalendarDays, Images, Inbox, BarChart3, Briefcase, Users, Settings,
   Plus, Search, Bell, Sun, Moon, Menu, ChevronDown, LogOut, CheckCheck, Sparkles,
   UserRound, MonitorSmartphone, CornerDownLeft, Command as CommandIcon,
-  BrainCircuit,
+  BrainCircuit, Coins,
 } from "lucide-react";
 import { cn, Logo, Avatar, Dropdown, Button, timeAgo } from "@/components/ui";
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
@@ -209,6 +209,55 @@ function UserCard() {
   );
 }
 
+function TopbarUserMenu() {
+  const { data } = useWorkspace();
+  const router = useRouter();
+  const [leaving, setLeaving] = useState(false);
+  if (!data) return null;
+
+  async function leaveAccount() {
+    if (leaving) return;
+    setLeaving(true);
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error();
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      setLeaving(false);
+      toast.error("Não foi possível sair. Tente novamente.");
+    }
+  }
+
+  return (
+    <Dropdown
+      align="right"
+      trigger={
+        <button
+          className="ml-0.5 flex items-center gap-2 rounded-xl p-1 transition hover:bg-surface-2 sm:pr-2"
+          aria-label="Abrir menu da conta"
+          title={`${data.user.name} · ${data.user.email}`}
+        >
+          <Avatar name={data.user.name} color={data.user.avatarColor} size={30} />
+          <span className="hidden max-w-28 truncate text-[12px] font-semibold xl:block">{data.user.name}</span>
+          <ChevronDown size={13} className="hidden text-muted sm:block" />
+        </button>
+      }
+      items={[
+        { label: data.user.email, icon: <UserRound size={14} />, onClick: () => router.push("/settings") },
+        { label: "Meu perfil", icon: <Settings size={14} />, onClick: () => router.push("/settings") },
+        { divider: true, label: "" },
+        {
+          label: leaving ? "Saindo…" : "Sair / trocar de conta",
+          icon: <LogOut size={14} />,
+          danger: true,
+          onClick: leaveAccount,
+        },
+      ]}
+    />
+  );
+}
+
 /* ---------------------------------- Topbar ---------------------------------- */
 function Topbar({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname();
@@ -267,6 +316,18 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
           >
             {mounted && resolvedTheme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
           </button>
+
+          <Link
+            href="/studio#creditos"
+            className="flex items-center gap-1.5 rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground sm:px-2.5"
+            aria-label="Ver créditos Postline"
+            title="Créditos Postline"
+          >
+            <Coins size={17} />
+            <span className="hidden text-[12px] font-medium xl:inline">Créditos</span>
+          </Link>
+
+          {data && <TopbarUserMenu />}
         </div>
       </div>
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
