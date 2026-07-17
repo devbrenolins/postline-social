@@ -98,13 +98,13 @@ export default function CalendarPage() {
             <h2 className="ml-2 min-w-36 text-[15px] font-semibold capitalize">{format(cursor, "MMMM yyyy", { locale: ptBR })}</h2>
           </div>
         )}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           <Filter size={14} className="text-muted" />
-          <select value={platform} onChange={(e) => setPlatform(e.target.value as PlatformT | "all")} className={cn(inputCls, "h-8.5 w-auto text-[12.5px]")} aria-label="Filtrar por rede">
+          <select value={platform} onChange={(e) => setPlatform(e.target.value as PlatformT | "all")} className={cn(inputCls, "h-8.5 min-w-0 flex-1 text-[12.5px] sm:w-auto sm:flex-none")} aria-label="Filtrar por rede">
             <option value="all">Todas as redes</option>
             {Object.entries(PLATFORM_META).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
           </select>
-          <select value={clientId} onChange={(e) => setClientId(e.target.value)} className={cn(inputCls, "h-8.5 w-auto text-[12.5px]")} aria-label="Filtrar por cliente">
+          <select value={clientId} onChange={(e) => setClientId(e.target.value)} className={cn(inputCls, "h-8.5 min-w-0 flex-1 text-[12.5px] sm:w-auto sm:flex-none")} aria-label="Filtrar por cliente">
             <option value="all">Todos os clientes</option>
             {(ws?.clients ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>

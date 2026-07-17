@@ -433,13 +433,13 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-surface px-5 py-3.5">
+        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-surface px-4 py-3.5 sm:px-5">
           {editing && status !== "published" && (
             <Button variant="ghost" size="md" className="text-danger hover:bg-danger/10" onClick={remove}>
               <Trash2 size={14} /> Excluir
             </Button>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
             {canInteract && (
               <>
                 <Button variant="outline" onClick={() => submit("draft")} loading={busy === "draft"}>
@@ -448,7 +448,7 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
                 <Button variant="soft" onClick={() => submit("schedule")} loading={busy === "schedule"} disabled={!scheduledAt}>
                   <CalendarClock size={14} /> Agendar
                 </Button>
-                <Button onClick={() => submit("publish")} loading={busy === "publish"}>
+                <Button className="col-span-2 sm:col-span-1" onClick={() => submit("publish")} loading={busy === "publish"}>
                   <Send size={14} /> Publicar agora
                 </Button>
               </>

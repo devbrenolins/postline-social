@@ -194,7 +194,7 @@ function Intelligence({ data, reload }: { data: StudioData | null; reload: () =>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, mode, dailyRequested]);
   return <div className="space-y-5">
-    <Segmented value={mode} onChange={(value) => { setMode(value); setResult(value === "daily" ? data?.dailyTrend?.text ?? "" : ""); setError(""); }} options={[{ value: "daily", label: "Tendências do dia" }, { value: "trends", label: "Buscar por nicho" }, { value: "music", label: "Músicas em alta" }, { value: "competitors", label: "Concorrentes" }]} />
+    <div className="overflow-x-auto pb-1"><Segmented value={mode} onChange={(value) => { setMode(value); setResult(value === "daily" ? data?.dailyTrend?.text ?? "" : ""); setError(""); }} options={[{ value: "daily", label: "Tendências do dia" }, { value: "trends", label: "Buscar por nicho" }, { value: "music", label: "Músicas em alta" }, { value: "competitors", label: "Concorrentes" }]} /></div>
     <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
       <Panel title={mode === "daily" ? "Panorama geral de hoje" : mode === "trends" ? "Radar por nicho" : mode === "music" ? "Radar de áudios" : "Monitoramento competitivo"} icon={mode === "daily" || mode === "trends" ? <TrendingUp size={17} /> : mode === "music" ? <Music2 size={17} /> : <Radar size={17} />}>
         {!data?.status.openai && <ConnectionWarning provider="OpenAI" />}
