@@ -187,6 +187,7 @@ function UserCard() {
   return (
     <Dropdown
       align="left"
+      side="top"
       trigger={
         <button className="mt-1 flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition hover:bg-surface-2" aria-label="Abrir menu da conta no perfil">
           <Avatar name={data.user.name} color={data.user.avatarColor} size={30} />

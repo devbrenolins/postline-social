@@ -262,9 +262,10 @@ export function Segmented<T extends string>({ options, value, onChange, classNam
 }
 
 /* --------------------------------- Dropdown --------------------------------- */
-export function Dropdown({ trigger, items, align = "right" }: {
+export function Dropdown({ trigger, items, align = "right", side = "bottom" }: {
   trigger: React.ReactNode;
   align?: "left" | "right";
+  side?: "top" | "bottom";
   items: { label: string; icon?: React.ReactNode; onClick?: () => void; danger?: boolean; divider?: boolean }[];
 }) {
   const [open, setOpen] = useState(false);
@@ -280,9 +281,13 @@ export function Dropdown({ trigger, items, align = "right" }: {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            initial={{ opacity: 0, y: side === "top" ? -4 : 4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: side === "top" ? -4 : 4, scale: 0.98 }}
             transition={{ duration: 0.12 }}
-            className={cn("absolute z-40 mt-1.5 min-w-44 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-lg", align === "right" ? "right-0" : "left-0")}
+            className={cn(
+              "absolute z-40 min-w-44 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-lg",
+              side === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5",
+              align === "right" ? "right-0" : "left-0"
+            )}
           >
             {items.map((item, i) =>
               item.divider ? (
