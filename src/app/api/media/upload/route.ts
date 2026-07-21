@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { media } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
-const BUCKET = "media";
+export const runtime = "nodejs";
+
 const MAX_BYTES = 50 * 1024 * 1024; // 50MB
 
 /**
@@ -23,31 +22,36 @@ export async function POST(req: NextRequest) {
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "Arquivo muito grande (máx. 50MB)." }, { status: 413 });
 
   const isVideo = file.type.startsWith("video");
-  const ext = (file.name.split(".").pop() || (isVideo ? "mp4" : "jpg")).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-  const path = `${user.workspaceId}/${crypto.randomUUID()}.${ext}`;
+  const isImage = file.type.startsWith("image");
 
-  const supabase = createSupabaseAdminClient();
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, buffer, {
-    contentType: file.type || "application/octet-stream",
-    upsert: false,
-  });
-  if (upErr) return NextResponse.json({ error: `Falha no upload: ${upErr.message}` }, { status: 502 });
+  let buffer: Buffer = Buffer.from(await file.arrayBuffer());
+  let contentType = file.type || "application/octet-stream";
+  let ext = (file.name.split(".").pop() || (isVideo ? "mp4" : "jpg")).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
 
-  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  const url = pub.publicUrl;
+  // O Instagram só publica imagens em JPEG. Normaliza qualquer imagem (PNG,
+  // WebP, etc.) para JPEG antes de enviar ao Storage.
+  if (isImage) {
+    try {
+      buffer = await toInstagramJpeg(buffer);
+      contentType = "image/jpeg";
+      ext = "jpg";
+    } catch {
+      // Se a conversão falhar (ex.: formato exótico), segue com o arquivo original.
+    }
+  }
 
-  const [row] = await db
-    .insert(media)
-    .values({
+  try {
+    const { media: row, url } = await saveMedia({
       workspaceId: user.workspaceId,
-      folderId,
-      name: file.name.slice(0, 200),
-      url,
+      buffer,
+      contentType,
+      ext,
+      name: file.name,
       type: isVideo ? "video" : "image",
-      sizeKb: Math.max(1, Math.floor(file.size / 1024)),
-    })
-    .returning();
-
-  return NextResponse.json({ media: row, url }, { status: 201 });
+      folderId,
+    });
+    return NextResponse.json({ media: row, url }, { status: 201 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Falha no upload." }, { status: 502 });
+  }
 }

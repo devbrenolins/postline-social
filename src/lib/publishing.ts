@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { posts, socialAccounts } from "@/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { createMediaContainer, publishMediaContainer, getContainerStatus } from "@/lib/instagram";
 
 export type PublishResult = { account: string; ok: boolean; mediaId?: string; error?: string };
@@ -57,6 +57,12 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
     await db.update(posts).set({ status: "failed", updatedAt: new Date() }).where(eq(posts.id, post.id));
     throw new Error("O post precisa de ao menos uma mídia (URL pública) para publicar.");
   }
+  // A Graph API do Instagram baixa a mídia da URL: precisa ser HTTP(S) pública.
+  // Data URIs (base64) ou blobs locais não funcionam.
+  if (!/^https?:\/\//i.test(mediaUrl)) {
+    await db.update(posts).set({ status: "failed", updatedAt: new Date() }).where(eq(posts.id, post.id));
+    throw new Error("A mídia precisa ser uma URL pública (http/https). Faça upload da imagem antes de publicar.");
+  }
 
   const targets = await db
     .select()
@@ -67,7 +73,10 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
         eq(socialAccounts.platform, "instagram"),
         eq(socialAccounts.connected, true),
         isNull(socialAccounts.deletedAt),
-        ...(post.clientId ? [eq(socialAccounts.clientId, post.clientId)] : [])
+        // Conta vinculada ao cliente do post OU conta do workspace (sem cliente).
+        ...(post.clientId
+          ? [or(eq(socialAccounts.clientId, post.clientId), isNull(socialAccounts.clientId))]
+          : [])
       )
     );
 

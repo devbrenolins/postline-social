@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { posts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { and, eq, isNull } from "drizzle-orm";
-import { fakeMetrics } from "../route";
+import { publishPost } from "@/lib/publishing";
 
 async function loadPost(id: string, workspaceId: string) {
   const rows = await db.select().from(posts)
@@ -35,11 +35,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ post: copy }, { status: 201 });
   }
   if (action === "publish") {
-    const [updated] = await db.update(posts)
-      .set({ status: "published", publishedAt: now, scheduledAt: null, metrics: fakeMetrics(), updatedAt: now })
-      .where(eq(posts.id, post.id)).returning();
-    await log(user, "publicou imediatamente", post.id);
-    return NextResponse.json({ post: updated });
+    try {
+      const { status } = await publishPost(post.id, user.workspaceId);
+      const updated = await loadPost(id, user.workspaceId);
+      await log(user, status === "published" ? "publicou imediatamente" : "tentou publicar (falhou)", post.id);
+      return NextResponse.json({ post: updated }, { status: status === "published" ? 200 : 502 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Falha ao publicar." }, { status: 400 });
+    }
   }
   if (action === "cancel") {
     const [updated] = await db.update(posts)

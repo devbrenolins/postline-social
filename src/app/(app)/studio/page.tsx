@@ -122,9 +122,9 @@ function ScriptGenerator({ configured, reload }: { configured: boolean; reload: 
 
 function CreativeGenerator({ configured, reload }: { configured: boolean; reload: () => void }) {
   const [prompt, setPrompt] = useState(""); const [style, setStyle] = useState("Editorial sofisticado, luz natural, cores da marca");
-  const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
+  const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [savedUrl, setSavedUrl] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
-  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); await reload(); toast.success(`Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
+  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); setSavedUrl(data.url ?? ""); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
       {!configured && <ConnectionWarning provider="OpenAI" />}
@@ -142,7 +142,7 @@ function CreativeGenerator({ configured, reload }: { configured: boolean; reload
           <img src={image} alt="Criativo gerado por IA" className="max-h-130 w-full object-contain" />
         </> : <div className="max-w-xs text-center text-muted"><ImageIcon className="mx-auto mb-3 opacity-40" size={36} /><p className="text-[13px]">Seu criativo aparecerá aqui.</p></div>}
       </div>
-      {image && <Button variant="outline" className="w-full" onClick={() => { const a = document.createElement("a"); a.href = image; a.download = `postline-criativo-${Date.now()}.png`; a.click(); }}><Download size={15} /> Baixar PNG</Button>}
+      {image && <Button variant="outline" className="w-full" onClick={() => { const a = document.createElement("a"); a.href = savedUrl || image; a.download = `postline-criativo-${Date.now()}.${savedUrl ? "jpg" : "png"}`; a.click(); }}><Download size={15} /> Baixar {savedUrl ? "JPG" : "PNG"}</Button>}
     </Panel>
   </div>;
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { posts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
+import { publishPost } from "@/lib/publishing";
 import { and, desc, asc, eq, isNull, isNotNull, sql, SQL } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
@@ -42,7 +43,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const status = (body.status as "draft" | "scheduled" | "published") ?? "draft";
   const now = new Date();
+  const wantsPublish = status === "published";
 
+  // Publicação imediata: grava primeiro como rascunho e só depois dispara a
+  // Graph API. Assim o status "published" reflete o resultado real, não uma
+  // marcação otimista sem envio ao Instagram.
   const [post] = await db.insert(posts).values({
     workspaceId: user.workspaceId,
     authorId: user.id,
@@ -52,11 +57,9 @@ export async function POST(req: NextRequest) {
     networks: Array.isArray(body.networks) ? body.networks : [],
     mediaUrls: Array.isArray(body.mediaUrls) ? body.mediaUrls : [],
     format: body.format ?? "feed",
-    status,
+    status: wantsPublish ? "draft" : status,
     scheduledAt: status === "scheduled" && body.scheduledAt ? new Date(body.scheduledAt) : null,
-    publishedAt: status === "published" ? now : null,
     labels: Array.isArray(body.labels) ? body.labels : [],
-    metrics: status === "published" ? fakeMetrics() : undefined,
     history: [{ caption: String(body.caption ?? ""), at: now.toISOString() }],
   }).returning();
 
@@ -65,6 +68,23 @@ export async function POST(req: NextRequest) {
     action: status === "draft" ? "salvou um rascunho" : status === "scheduled" ? "agendou uma publicação" : "publicou imediatamente",
     entity: "posts", entityId: post.id,
   });
+
+  if (wantsPublish) {
+    try {
+      const { status: pubStatus, results } = await publishPost(post.id, user.workspaceId);
+      const [fresh] = await db.select().from(posts).where(eq(posts.id, post.id)).limit(1);
+      return NextResponse.json(
+        { post: fresh ?? post, results },
+        { status: pubStatus === "published" ? 201 : 502 }
+      );
+    } catch (e) {
+      const [fresh] = await db.select().from(posts).where(eq(posts.id, post.id)).limit(1);
+      return NextResponse.json(
+        { post: fresh ?? post, error: e instanceof Error ? e.message : "Falha ao publicar." },
+        { status: 400 }
+      );
+    }
+  }
 
   return NextResponse.json({ post }, { status: 201 });
 }

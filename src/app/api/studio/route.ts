@@ -5,6 +5,7 @@ import { aiGenerations, competitors, directAutomations, media } from "@/db/schem
 import { getSessionUser } from "@/lib/auth";
 import { AiConfigurationError, generateImage, generateText, type ReferenceImage } from "@/lib/openai";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
+import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
 function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro interno.";
@@ -132,7 +133,30 @@ export async function POST(req: NextRequest) {
       const enriched = `Crie um criativo profissional para redes sociais. ${prompt}. Identidade visual: ${body.style || "contemporânea, sofisticada e limpa"}. ${references.length ? "Use as imagens anexadas como influência visual e comparativa, preservando apenas os elementos solicitados e sem copiar marcas." : ""} Evite marcas d'água e textos ilegíveis.`;
       const result = await generateImage(enriched, size, references);
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: enriched, resultText: "Criativo gerado", model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
-      return NextResponse.json(result);
+
+      // A IA devolve PNG em base64. Converte para JPEG e salva no Storage
+      // público + biblioteca, para o criativo já ficar publicável no Instagram
+      // (que não aceita data: URI nem PNG).
+      let mediaUrl: string | undefined;
+      let mediaId: string | undefined;
+      try {
+        const pngBuffer = Buffer.from(result.dataUrl.split(",")[1] ?? "", "base64");
+        const jpeg = await toInstagramJpeg(pngBuffer);
+        const saved = await saveMedia({
+          workspaceId: wid,
+          buffer: jpeg,
+          contentType: "image/jpeg",
+          ext: "jpg",
+          name: `criativo-ia-${Date.now()}.jpg`,
+          type: "image",
+        });
+        mediaUrl = saved.url;
+        mediaId = saved.media.id;
+      } catch {
+        // Se o upload falhar, ainda retorna o dataUrl para preview/download.
+      }
+
+      return NextResponse.json({ ...result, url: mediaUrl, mediaId });
     }
 
     if (body.action === "dailyTrends") {
