@@ -4,35 +4,31 @@ Plataforma de gestão de redes sociais construída com Next.js, React, PostgreSQ
 
 ## Recursos
 
-- Autenticação e workspaces
+- **Autenticação via Supabase** (e-mail + Google) com provisionamento automático de perfil e workspace
+- **Workspaces e equipe**: crie espaços de trabalho e convide pessoas por e-mail (vínculo automático no primeiro login)
+- **Instagram oficial (Graph API)**: conecte várias contas Business, sincronize métricas, envie directs e publique/agende posts
 - Calendário e editor de publicações
-- Gestão de clientes, equipe e biblioteca de mídia
-- Caixa de entrada unificada
+- Gestão de clientes e biblioteca de mídia
+- Caixa de entrada unificada (mensagens do webhook da Meta)
 - Analytics e relatórios
 - Geração de roteiros e criativos com OpenAI
-- Pesquisa de tendências, músicas e concorrentes com fontes atuais
-- Automação de directs do Instagram via webhook da Meta
-- API com persistência PostgreSQL
+- **PWA** instalável (manifest + service worker)
+- API com persistência PostgreSQL (Drizzle ORM)
 
-## Desenvolvimento
+## Configuração
 
-1. Instale as dependências com `pnpm install`.
-2. Copie `.env.example` para `.env.local` e configure `DATABASE_URL`.
-3. Execute `pnpm db:migrate` para criar o schema.
-4. Opcionalmente execute `pnpm db:seed` para carregar os dados demonstrativos.
-5. Inicie com `pnpm dev`.
+O passo a passo completo (Supabase, OpenAI, Instagram/Meta, Cron e deploy) está em
+**[SETUP.md](./SETUP.md)**.
 
-Credenciais do seed demonstrativo: `demo@postline.app` / `demo1234`.
+Resumo:
 
-## Integrações de produção
+1. `cp .env.example .env.local` e `pnpm install`.
+2. Preencha as chaves do Supabase (banco + auth) e rode `pnpm db:migrate`.
+3. `pnpm dev` e acesse <http://localhost:3000>.
+4. Adicione `OPENAI_API_KEY` e as credenciais da Meta conforme o SETUP.
 
-Configure `OPENAI_API_KEY` para ativar roteiros, criativos e pesquisas. Os modelos podem ser sobrescritos com `OPENAI_TEXT_MODEL` e `OPENAI_IMAGE_MODEL`.
-
-Para directs do Instagram, configure as variáveis `META_ACCESS_TOKEN`, `META_IG_USER_ID`, `META_APP_SECRET`, `META_VERIFY_TOKEN` e `META_WORKSPACE_ID`. Cadastre como webhook da Meta:
-
-```text
-https://seu-dominio.com/api/meta/webhook
-```
+> Autenticação, banco e RLS são fornecidos pelo Supabase — o `DATABASE_URL` aponta
+> para o Postgres do próprio projeto Supabase.
 
 ## Validação
 

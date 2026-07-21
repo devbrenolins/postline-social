@@ -5,9 +5,24 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock, User, Building2, ArrowRight, TrendingUp, CheckCircle2, Heart, MessageCircle } from "lucide-react";
 import { Logo, Button, InlineError, inputCls, labelCls, cn } from "@/components/ui";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
 type Mode = "login" | "register" | "forgot";
+
+/** Traduz erros do Supabase Auth para mensagens claras em pt-BR. */
+function translateAuthError(err: unknown): string {
+  const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  if (msg.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
+  if (msg.includes("email not confirmed")) return "Confirme seu e-mail antes de entrar (veja sua caixa de entrada).";
+  if (msg.includes("user already registered") || msg.includes("already registered")) return "Este e-mail já está em uso. Faça login.";
+  if (msg.includes("password should be at least")) return "A senha deve ter pelo menos 8 caracteres.";
+  if (msg.includes("rate limit") || msg.includes("too many")) return "Muitas tentativas. Aguarde um minuto e tente novamente.";
+  if (msg.includes("provider is not enabled")) return "Login com Google não está habilitado no Supabase ainda.";
+  if (msg.includes("supabase")) return "Autenticação não configurada. Adicione as chaves do Supabase no ambiente.";
+  if (msg.includes("failed to fetch") || msg.includes("networkerror")) return "Não foi possível conectar. Verifique sua conexão e tente novamente.";
+  return err instanceof Error && err.message ? err.message : "Algo deu errado. Tente novamente.";
+}
 
 const PHOTOS = [
   "https://images.pexels.com/photos/29765795/pexels-photo-29765795.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
@@ -40,28 +55,48 @@ export default function LoginPage() {
     if (m === "register" && payload.password.length < 8) {
       return setError("A senha deve ter pelo menos 8 caracteres.");
     }
+    if (m === "login" && !payload.password) {
+      return setError("Informe sua senha.");
+    }
     if (m === "register" && !payload.name.trim()) {
       return setError("Informe seu nome completo.");
     }
 
     setLoading(true);
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 15_000);
     try {
-      const res = await fetch(`/api/auth/${m === "forgot" ? "forgot" : m}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
-      });
-      const data = await res.json().catch(() => ({} as { error?: string }));
-      if (!res.ok) throw new Error(data.error || "Algo deu errado. Tente novamente.");
+      const supabase = createSupabaseBrowserClient();
+      const email = payload.email.trim().toLowerCase();
 
       if (m === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
+        });
+        if (error) throw error;
         toast.success("Se o e-mail existir, enviaremos um link de recuperação.");
         setMode("login");
         setLoading(false);
         return;
+      }
+
+      if (m === "register") {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password: payload.password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            data: { full_name: payload.name.trim(), workspace_name: payload.workspace.trim() },
+          },
+        });
+        if (error) throw error;
+        if (!data.session) {
+          toast.success("Conta criada! Confirme seu e-mail para ativar o acesso.");
+          setMode("login");
+          setLoading(false);
+          return;
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password: payload.password });
+        if (error) throw error;
       }
 
       // Navega; se o roteador falhar por qualquer motivo, força recarga total.
@@ -71,30 +106,31 @@ export default function LoginPage() {
         if (window.location.pathname.startsWith("/login")) {
           window.location.assign("/dashboard");
         }
-      }, 1200);
+      }, 1000);
     } catch (err) {
-      const offline =
-        err instanceof TypeError ||
-        (err instanceof DOMException && err.name === "AbortError");
-      setError(
-        offline
-          ? "Não foi possível conectar ao servidor. Aguarde alguns segundos e tente novamente."
-          : err instanceof Error
-            ? err.message
-            : "Algo deu errado. Tente novamente."
-      );
+      setError(translateAuthError(err));
       setLoading(false);
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
-  function useDemo() {
-    const creds = { email: "demo@postline.app", password: "demo1234" };
-    setMode("login");
-    setForm((f) => ({ ...f, ...creds }));
-    void submit(undefined, creds, "login");
+  async function loginWithGoogle() {
+    setError("");
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: { prompt: "select_account" },
+        },
+      });
+      if (error) throw error;
+      // O navegador é redirecionado para o Google; nada mais a fazer aqui.
+    } catch (err) {
+      setError(translateAuthError(err));
+    }
   }
+
 
   return (
     <div className="flex min-h-dvh bg-background">
@@ -184,15 +220,10 @@ export default function LoginPage() {
                     <span className="text-[12px] text-muted">ou continue com</span>
                     <div className="h-px flex-1 bg-border" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button type="button" variant="outline" onClick={() => toast.info("OAuth Google: configure o provedor em Configurações → Integrações.")}>
-                      <svg width="15" height="15" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
-                      Google
-                    </Button>
-                    <Button type="button" variant="soft" onClick={useDemo}>
-                      Conta demo
-                    </Button>
-                  </div>
+                  <Button type="button" variant="outline" onClick={() => void loginWithGoogle()} className="w-full">
+                    <svg width="15" height="15" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
+                    Continuar com Google
+                  </Button>
                 </>
               )}
             </form>

@@ -21,9 +21,13 @@ export const users = pgTable(
   "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Vincula ao usuário do Supabase Auth (auth.users.id). Nulo apenas em contas legadas.
+    authId: uuid("auth_id"),
     email: varchar("email", { length: 320 }).notNull(),
     name: varchar("name", { length: 160 }).notNull(),
-    passwordHash: text("password_hash").notNull(),
+    // Nulo quando a autenticação é gerida pelo Supabase (senha vive no Supabase Auth).
+    passwordHash: text("password_hash"),
+    avatarUrl: text("avatar_url"),
     avatarColor: varchar("avatar_color", { length: 24 }).notNull().default("#AB2F5F"),
     settings: jsonb("settings").$type<Record<string, unknown>>().default({}),
     twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
@@ -31,7 +35,7 @@ export const users = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("users_email_idx").on(t.email)]
+  (t) => [uniqueIndex("users_email_idx").on(t.email), uniqueIndex("users_auth_id_idx").on(t.authId)]
 );
 
 export const sessions = pgTable(
@@ -139,11 +143,24 @@ export const socialAccounts = pgTable(
     displayName: varchar("display_name", { length: 160 }).notNull(),
     followers: integer("followers").notNull().default(0),
     connected: boolean("connected").notNull().default(true),
+    // Integração oficial (Instagram Graph API / Meta)
+    provider: varchar("provider", { length: 24 }).default("meta"), // meta | manual
+    externalId: varchar("external_id", { length: 64 }), // IG Business account id
+    pageId: varchar("page_id", { length: 64 }), // Facebook Page vinculada
+    avatarUrl: text("avatar_url"),
+    accessToken: text("access_token"), // long-lived token da conta/página
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    scopes: jsonb("scopes").$type<string[]>().default([]),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("accounts_workspace_idx").on(t.workspaceId), index("accounts_client_idx").on(t.clientId)]
+  (t) => [
+    index("accounts_workspace_idx").on(t.workspaceId),
+    index("accounts_client_idx").on(t.clientId),
+    uniqueIndex("accounts_external_idx").on(t.workspaceId, t.externalId),
+  ]
 );
 
 /* ------------------------------------------------------------------ */

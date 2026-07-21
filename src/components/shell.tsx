@@ -124,7 +124,13 @@ function SidebarContent() {
             { label: "Configurações do workspace", icon: <Settings size={14} />, onClick: () => (window.location.href = "/settings") },
             { label: "Membros e permissões", icon: <Users size={14} />, onClick: () => (window.location.href = "/team") },
             { divider: true, label: "" },
-            { label: "Criar novo workspace", icon: <Plus size={14} />, onClick: () => toast.info("Múltiplos workspaces disponíveis no plano Business.") },
+            { label: "Criar novo workspace", icon: <Plus size={14} />, onClick: async () => {
+              const name = window.prompt("Nome do novo workspace")?.trim();
+              if (!name) return;
+              const res = await fetch("/api/workspaces", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+              if (res.ok) { toast.success("Workspace criado!"); window.location.assign("/dashboard"); }
+              else { const d = await res.json().catch(() => ({})); toast.error(d.error || "Falha ao criar workspace."); }
+            } },
           ]}
         />
       </div>
@@ -295,16 +301,6 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
             <Search size={17} />
           </button>
 
-          <Dropdown
-            trigger={
-              <button className="relative rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground" aria-label="Notificações">
-                <Bell size={17} />
-                {unread.length > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent ring-2 ring-background" />}
-              </button>
-            }
-            items={[]}
-            // custom content via key trick is not supported; use dedicated popover below
-          />
           <Notifications unread={unread.length} onReadAll={async () => {
             await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "readNotifications" }) });
             refetch();

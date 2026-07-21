@@ -4,7 +4,9 @@ import {
   workspaces, workspaceMembers, clients, socialAccounts, notifications,
   activityLogs, apiKeys, posts, inboxItems, users, webhooks,
 } from "@/db/schema";
-import { generateToken, getSessionUser, hashPassword } from "@/lib/auth";
+import { generateToken, getSessionUser } from "@/lib/auth";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient, supabaseAdminConfigured } from "@/lib/supabase/admin";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 export async function GET() {
@@ -68,16 +70,44 @@ export async function POST(req: NextRequest) {
     case "invite": {
       const email = String(body.email ?? "").toLowerCase().trim();
       if (!email.includes("@")) return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
+      const role = ["admin", "editor", "designer", "client"].includes(body.role) ? body.role : "editor";
+
+      // Evita convite duplicado (pendente ou já membro pelo e-mail).
+      const existing = await db
+        .select({ id: workspaceMembers.id })
+        .from(workspaceMembers)
+        .where(and(eq(workspaceMembers.workspaceId, wid), eq(workspaceMembers.invitedEmail, email), isNull(workspaceMembers.deletedAt)))
+        .limit(1);
+      if (existing[0]) return NextResponse.json({ error: "Este e-mail já foi convidado." }, { status: 409 });
+
       const palette = ["#3E6C8E", "#6B5B95", "#3F7D5D", "#8A6D3B"];
       const [m] = await db.insert(workspaceMembers).values({
-        workspaceId: wid, invitedEmail: email, role: body.role ?? "editor",
+        workspaceId: wid, invitedEmail: email, role,
         status: "pending", avatarColor: palette[Math.floor(Math.random() * palette.length)],
       }).returning();
+
+      // Envia o e-mail de convite via Supabase (best-effort — o vínculo é feito
+      // no primeiro login com este e-mail, mesmo que o e-mail não seja enviado).
+      let emailed = false;
+      if (supabaseAdminConfigured()) {
+        try {
+          const admin = createSupabaseAdminClient();
+          const base = process.env.NEXT_PUBLIC_APP_URL || "";
+          await admin.auth.admin.inviteUserByEmail(email, {
+            redirectTo: base ? `${base}/auth/callback` : undefined,
+            data: { invited_to_workspace: wid },
+          });
+          emailed = true;
+        } catch {
+          /* e-mail já cadastrado ou SMTP não configurado: convite segue válido */
+        }
+      }
+
       await db.insert(activityLogs).values({
         workspaceId: wid, userId: user.id, actorName: user.name, actorColor: user.avatarColor,
         action: `convidou ${email} para a equipe`, entity: "team", entityId: m.id,
       });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, emailed });
     }
     case "removeMember": {
       await db.update(workspaceMembers).set({ deletedAt: new Date() })
@@ -119,14 +149,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     case "changePassword": {
-      if (!body.current || !body.next) return NextResponse.json({ error: "Preencha os campos." }, { status: 400 });
+      if (!body.next) return NextResponse.json({ error: "Informe a nova senha." }, { status: 400 });
       if (String(body.next).length < 8) return NextResponse.json({ error: "A nova senha deve ter pelo menos 8 caracteres." }, { status: 400 });
-      const { verifyPassword } = await import("@/lib/auth");
-      const rows = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
-      if (!verifyPassword(String(body.current), rows[0].passwordHash)) {
-        return NextResponse.json({ error: "Senha atual incorreta." }, { status: 401 });
-      }
-      await db.update(users).set({ passwordHash: hashPassword(String(body.next)), updatedAt: new Date() }).where(eq(users.id, user.id));
+      const supabase = await createSupabaseServerClient();
+      const { error } = await supabase.auth.updateUser({ password: String(body.next) });
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       return NextResponse.json({ ok: true });
     }
     default:

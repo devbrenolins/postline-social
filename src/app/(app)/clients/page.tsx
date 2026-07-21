@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Briefcase, Plus, Search, Check } from "lucide-react";
+import { Briefcase, Plus, Search, Check, Link2 } from "lucide-react";
 import { cn, Button, Badge, Modal, EmptyState, PlatformChip, inputCls, labelCls, fmt } from "@/components/ui";
 import type { Client } from "@/lib/types";
 import { toast } from "sonner";
@@ -21,6 +21,19 @@ export default function ClientsPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Feedback do retorno do OAuth do Instagram (?connected=N ou ?error=...).
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const connected = sp.get("connected");
+    const error = sp.get("error");
+    if (connected) toast.success(`${connected} conta(s) do Instagram conectada(s)!`);
+    else if (error) toast.error(decodeURIComponent(error));
+    if (connected || error) {
+      window.history.replaceState({}, "", "/clients");
+      if (connected) load();
+    }
+  }, [load]);
+
   const filtered = clients.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()) || c.industry.toLowerCase().includes(q.toLowerCase()));
 
   return (
@@ -30,7 +43,10 @@ export default function ClientsPage() {
           <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar clientes…" className={cn(inputCls, "pl-10")} aria-label="Buscar clientes" />
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" onClick={() => (window.location.href = "/api/meta/connect")}>
+            <Link2 size={15} /> Conectar Instagram
+          </Button>
           <Button onClick={() => setCreating(true)}><Plus size={15} /> Novo cliente</Button>
         </div>
       </div>

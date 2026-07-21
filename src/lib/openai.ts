@@ -45,7 +45,7 @@ function usageOf(data: { usage?: OpenAiUsage }, fallbackInput = 0, fallbackOutpu
 export type ReferenceImage = { name: string; type: string; dataUrl: string };
 
 export async function generateText(instructions: string, input: string, useWeb = false, references: ReferenceImage[] = []) {
-  const model = process.env.OPENAI_TEXT_MODEL || "gpt-5.6-luna";
+  const model = process.env.OPENAI_TEXT_MODEL || "gpt-4o";
   const data = await openAiRequest("/responses", {
     model,
     instructions,
@@ -72,7 +72,7 @@ function dataUrlToBlob(dataUrl: string) {
 }
 
 export async function generateImage(prompt: string, size: "1024x1024" | "1024x1536" | "1536x1024", references: ReferenceImage[] = []) {
-  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
+  const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
   let data;
   if (references.length) {
     const form = new FormData();
