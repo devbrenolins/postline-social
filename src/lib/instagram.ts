@@ -1,27 +1,40 @@
 /**
- * Integração oficial com o Instagram via Facebook Graph API (Login for Business).
- * Suporta múltiplas contas Instagram Business por workspace: cada conta guarda
- * seu próprio Page Access Token (long-lived) no banco (`socialAccounts.accessToken`).
+ * Integração oficial com o Instagram via **Instagram API with Instagram Login**.
+ * O usuário conecta a conta logando direto no Instagram (sem Página do Facebook):
+ * o fluxo OAuth roda em instagram.com e todas as chamadas usam graph.instagram.com.
  *
- * Permissões necessárias no app da Meta (Advanced Access após App Review):
- *   instagram_basic, instagram_manage_insights, instagram_manage_messages,
- *   instagram_content_publish, pages_show_list, pages_read_engagement, business_management
+ * Cada conta Instagram Business/Creator guarda seu próprio token long-lived
+ * (~60 dias) no banco (`socialAccounts.accessToken`). Não há pageId/pageToken.
+ *
+ * Requisitos: conta Instagram Business ou Creator (perfil pessoal não funciona).
+ * Permissões no app da Meta (produto "Instagram" → API with Instagram Login),
+ * com Advanced Access após App Review:
+ *   instagram_business_basic, instagram_business_manage_insights,
+ *   instagram_business_manage_messages, instagram_business_manage_comments,
+ *   instagram_business_content_publish
  */
 
-const GRAPH = () => `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}`;
+const VERSION = () => process.env.META_GRAPH_VERSION || "v23.0";
+const GRAPH = () => `https://graph.instagram.com/${VERSION()}`;
+
+/** Instagram app ID/secret (produto Instagram no app da Meta). Cai para META_* se não definido. */
+function appId() {
+  return process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || "";
+}
+function appSecret() {
+  return process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || "";
+}
 
 export const META_SCOPES = [
-  "instagram_basic",
-  "instagram_manage_insights",
-  "instagram_manage_messages",
-  "instagram_content_publish",
-  "pages_show_list",
-  "pages_read_engagement",
-  "business_management",
+  "instagram_business_basic",
+  "instagram_business_manage_insights",
+  "instagram_business_manage_messages",
+  "instagram_business_manage_comments",
+  "instagram_business_content_publish",
 ].join(",");
 
 export function metaOAuthConfigured() {
-  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
+  return Boolean(appId() && appSecret());
 }
 
 export function metaRedirectUri() {
@@ -29,15 +42,16 @@ export function metaRedirectUri() {
   return `${base}/api/meta/connect/callback`;
 }
 
+/** URL de autorização do Instagram Login (o usuário faz login direto no Instagram). */
 export function metaOAuthUrl(state: string) {
   const params = new URLSearchParams({
-    client_id: process.env.META_APP_ID!,
+    client_id: appId(),
     redirect_uri: metaRedirectUri(),
     state,
     scope: META_SCOPES,
     response_type: "code",
   });
-  return `https://www.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/dialog/oauth?${params}`;
+  return `https://www.instagram.com/oauth/authorize?${params}`;
 }
 
 type GraphError = { error?: { message?: string; type?: string; code?: number } };
@@ -67,24 +81,57 @@ async function graphPost<T = Record<string, unknown>>(path: string, body: Record
   return data;
 }
 
-/** Troca o `code` do OAuth por um token de usuário de curta duração. */
-export async function exchangeCodeForToken(code: string): Promise<string> {
-  const data = await graph<{ access_token: string }>("/oauth/access_token", {
-    client_id: process.env.META_APP_ID!,
-    client_secret: process.env.META_APP_SECRET!,
-    redirect_uri: metaRedirectUri(),
-    code,
+export type TokenResult = { token: string; userId: string };
+
+/**
+ * Troca o `code` do OAuth por um token de curta duração + o ID da conta.
+ * O endpoint de token do Instagram Login fica em api.instagram.com.
+ */
+export async function exchangeCodeForToken(code: string): Promise<TokenResult> {
+  const res = await fetch("https://api.instagram.com/oauth/access_token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: appId(),
+      client_secret: appSecret(),
+      grant_type: "authorization_code",
+      redirect_uri: metaRedirectUri(),
+      // O Instagram pode devolver o code com `#_` no fim; limpamos por segurança.
+      code: code.replace(/#_$/, ""),
+    }),
+    cache: "no-store",
   });
-  return data.access_token;
+  const raw = (await res.json()) as
+    | { access_token?: string; user_id?: string | number; error_message?: string; error_type?: string }
+    | { data?: Array<{ access_token: string; user_id: string | number }> };
+  if (!res.ok) {
+    const msg = "error_message" in raw ? raw.error_message : undefined;
+    throw new Error(msg || `Falha ao trocar o code por token (${res.status}).`);
+  }
+  // A resposta pode vir achatada ou dentro de `data: [...]`.
+  const flat = "access_token" in raw ? raw : undefined;
+  const nested = "data" in raw ? raw.data?.[0] : undefined;
+  const token = flat?.access_token ?? nested?.access_token;
+  const userId = flat?.user_id ?? nested?.user_id;
+  if (!token || userId == null) throw new Error("Resposta de token inválida do Instagram.");
+  return { token, userId: String(userId) };
 }
 
 /** Troca um token de curta duração por um long-lived (~60 dias). */
 export async function getLongLivedToken(shortToken: string): Promise<string> {
-  const data = await graph<{ access_token: string }>("/oauth/access_token", {
-    grant_type: "fb_exchange_token",
-    client_id: process.env.META_APP_ID!,
-    client_secret: process.env.META_APP_SECRET!,
-    fb_exchange_token: shortToken,
+  const data = await graph<{ access_token: string }>("/access_token", {
+    grant_type: "ig_exchange_token",
+    client_secret: appSecret(),
+    access_token: shortToken,
+  });
+  return data.access_token;
+}
+
+/** Renova um token long-lived (deve ter ao menos 24h de vida e < 60 dias). */
+export async function refreshLongLivedToken(token: string): Promise<string> {
+  const data = await graph<{ access_token: string }>("/refresh_access_token", {
+    grant_type: "ig_refresh_token",
+    access_token: token,
   });
   return data.access_token;
 }
@@ -95,49 +142,33 @@ export type DiscoveredAccount = {
   name: string;
   followers: number;
   profilePicture: string | null;
-  pageId: string;
-  pageToken: string;
 };
 
-/** Lista todas as contas Instagram Business ligadas às Páginas do usuário. */
-export async function listInstagramAccounts(userToken: string): Promise<DiscoveredAccount[]> {
-  const pages = await graph<{ data: Array<{ id: string; access_token: string; name: string }> }>("/me/accounts", {
-    access_token: userToken,
-    fields: "id,name,access_token",
-    limit: "100",
+/**
+ * Busca a conta Instagram Business/Creator do token (Instagram Login = 1 conta por login).
+ * Substitui a antiga descoberta via Páginas do Facebook.
+ */
+export async function getSelfAccount(token: string, fallbackId?: string): Promise<DiscoveredAccount> {
+  const me = await graph<{
+    user_id?: string;
+    id?: string;
+    username?: string;
+    name?: string;
+    followers_count?: number;
+    profile_picture_url?: string;
+  }>("/me", {
+    access_token: token,
+    fields: "user_id,username,name,followers_count,profile_picture_url",
   });
-
-  const accounts: DiscoveredAccount[] = [];
-  for (const page of pages.data ?? []) {
-    try {
-      const detail = await graph<{
-        instagram_business_account?: {
-          id: string;
-          username: string;
-          name?: string;
-          followers_count?: number;
-          profile_picture_url?: string;
-        };
-      }>(`/${page.id}`, {
-        access_token: page.access_token,
-        fields: "instagram_business_account{id,username,name,followers_count,profile_picture_url}",
-      });
-      const ig = detail.instagram_business_account;
-      if (!ig) continue;
-      accounts.push({
-        igId: ig.id,
-        username: ig.username,
-        name: ig.name || ig.username,
-        followers: ig.followers_count ?? 0,
-        profilePicture: ig.profile_picture_url ?? null,
-        pageId: page.id,
-        pageToken: page.access_token,
-      });
-    } catch {
-      // Página sem IG Business vinculado ou sem permissão — ignora.
-    }
-  }
-  return accounts;
+  const igId = me.user_id || me.id || fallbackId;
+  if (!igId) throw new Error("Não foi possível identificar a conta Instagram.");
+  return {
+    igId: String(igId),
+    username: me.username ?? "",
+    name: me.name || me.username || "",
+    followers: me.followers_count ?? 0,
+    profilePicture: me.profile_picture_url ?? null,
+  };
 }
 
 export type AccountSnapshot = {

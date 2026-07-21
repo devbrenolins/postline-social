@@ -5,14 +5,14 @@ import { metaOAuthConfigured, metaOAuthUrl } from "@/lib/instagram";
 
 const STATE_COOKIE = "meta_oauth_state";
 
-/** Inicia o fluxo OAuth da Meta para conectar contas Instagram Business. */
+/** Inicia o fluxo Instagram Login para conectar uma conta Instagram Business. */
 export async function GET() {
   const user = await getSessionUser();
   const base = process.env.NEXT_PUBLIC_APP_URL || "";
   if (!user) return NextResponse.redirect(`${base}/login`);
   if (!user.workspaceId) return NextResponse.redirect(`${base}/dashboard?error=no-workspace`);
   if (!metaOAuthConfigured()) {
-    return NextResponse.redirect(`${base}/settings?error=${encodeURIComponent("Integração Meta não configurada (META_APP_ID/SECRET).")}`);
+    return NextResponse.redirect(`${base}/settings?error=${encodeURIComponent("Integração Instagram não configurada (INSTAGRAM_APP_ID/SECRET).")}`);
   }
 
   const nonce = generateToken(16);

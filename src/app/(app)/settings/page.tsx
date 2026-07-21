@@ -239,16 +239,24 @@ function IntegrationsTab() {
         {(Object.keys(PLATFORM_META) as Platform[]).map((p) => {
           const isConn = connected.has(p);
           const acc = ws?.accounts.find((a) => a.platform === p);
+          const isInstagram = p === "instagram";
           return (
             <div key={p} className="flex items-center gap-3.5 rounded-xl border border-border px-4 py-3">
               <PlatformChip platform={p} size={16} />
               <div className="flex-1">
                 <p className="text-[13.5px] font-medium">{PLATFORM_META[p].name}</p>
-                <p className="text-[11.5px] text-muted">{isConn ? `@${acc?.handle} conectado` : "Nenhuma conta conectada"}</p>
+                <p className="text-[11.5px] text-muted">{isConn ? `@${acc?.handle} conectado` : isInstagram ? "Conecte via Instagram Business" : "Nenhuma conta conectada"}</p>
               </div>
               {isConn ? <Badge tone="success">Conectado</Badge> : <Badge>Inativo</Badge>}
-              <Button variant={isConn ? "outline" : "soft"} size="sm" onClick={() => toast.info(isConn ? "Gerenciamento via painel do provedor." : `Fluxo OAuth do ${PLATFORM_META[p].name} disponível no plano Pro.`)}>
-                {isConn ? "Gerenciar" : "Conectar"}
+              <Button
+                variant={isConn ? "outline" : "soft"}
+                size="sm"
+                onClick={() => {
+                  if (isInstagram) { window.location.href = "/api/meta/connect"; return; }
+                  toast.info(isConn ? "Gerenciamento via painel do provedor." : `Integração do ${PLATFORM_META[p].name} em breve.`);
+                }}
+              >
+                {isConn ? (isInstagram ? "Adicionar conta" : "Gerenciar") : "Conectar"}
               </Button>
             </div>
           );

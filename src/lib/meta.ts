@@ -5,7 +5,7 @@ export function metaConfigured() {
 }
 
 export function verifyMetaSignature(rawBody: string, signature: string | null) {
-  const secret = process.env.META_APP_SECRET;
+  const secret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
   if (!secret || !signature?.startsWith("sha256=")) return false;
   const expected = `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`;
   const a = Buffer.from(signature);
