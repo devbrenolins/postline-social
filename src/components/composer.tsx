@@ -587,15 +587,13 @@ function MediaPicker({ selected, onToggle, onClose }: { selected: string[]; onTo
     setUploading(true);
     try {
       for (const file of Array.from(files).slice(0, 6)) {
-        if (file.size > 700_000) { toast.error(`“${file.name}” excede 700KB (limite demo).`); continue; }
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const r = new FileReader(); r.onload = () => resolve(r.result as string); r.onerror = reject; r.readAsDataURL(file);
-        });
-        const res = await fetch("/api/media", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: file.name, url: dataUrl, type: file.type.startsWith("video") ? "video" : "image", sizeKb: Math.floor(file.size / 1024) }),
-        });
-        if (!res.ok) toast.error(`Falha ao enviar ${file.name}`);
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/media/upload", { method: "POST", body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(`Falha ao enviar ${file.name}${err.error ? `: ${err.error}` : ""}`);
+        }
       }
       await load();
       toast.success("Upload concluído.");

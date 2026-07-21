@@ -74,15 +74,12 @@ export default function MediaPage() {
     setUploading(true);
     let ok = 0;
     for (const file of Array.from(files).slice(0, 8)) {
-      if (file.size > 700_000) { toast.error(`“${file.name}” excede 700KB (limite demo).`); continue; }
-      const dataUrl = await new Promise<string>((res2, rej) => {
-        const r = new FileReader(); r.onload = () => res2(r.result as string); r.onerror = rej; r.readAsDataURL(file);
-      });
-      const res = await fetch("/api/media", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: file.name, url: dataUrl, type: file.type.startsWith("video") ? "video" : "image", sizeKb: Math.floor(file.size / 1024) }),
-      });
+      const fd = new FormData();
+      fd.append("file", file);
+      if (view.startsWith("folder:")) fd.append("folderId", view.slice(7));
+      const res = await fetch("/api/media/upload", { method: "POST", body: fd });
       if (res.ok) ok++;
+      else { const err = await res.json().catch(() => ({})); toast.error(`Falha ao enviar ${file.name}${err.error ? `: ${err.error}` : ""}`); }
     }
     if (ok) { toast.success(`${ok} arquivo(s) enviado(s).`); load(true); }
     setUploading(false);
