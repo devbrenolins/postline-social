@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Users, Eye, Heart, MousePointerClick, Download, FileSpreadsheet, FileText, TrendingUp, TrendingDown, Percent, ImageIcon,
+  Users, Eye, Heart, Download, FileSpreadsheet, FileText, TrendingUp, TrendingDown, Percent, ImageIcon,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, LineChart, Line, ReferenceLine,
@@ -11,13 +11,11 @@ import { cn, Button, Segmented, PlatformChip, Badge, fmt, PLATFORM_META } from "
 import type { Post, PlatformT } from "@/lib/types";
 import { toast } from "sonner";
 
-interface SeriesPoint { day: string; followers: number; reach: number; impressions: number; engagement: number; clicks: number; }
+interface SeriesPoint { day: string; followers: number; reach: number; views: number; engagement: number; }
 interface Analytics {
   series: SeriesPoint[];
-  kpis: { followers: number; reach: number; impressions: number; engagement: number; clicks: number; ctr: number; engagementRate: number; followersDelta: number; reachDelta: number; impressionsDelta: number; engagementDelta: number; clicksDelta: number };
-  byPlatform: { platform: string; reach: number; engagement: number }[];
+  kpis: { followers: number; reach: number; views: number; engagement: number; engagementRate: number; followersDelta: number; reachDelta: number; viewsDelta: number; engagementDelta: number };
   accounts: { id: string; platform: PlatformT; handle: string; followers: number }[];
-  heatmap: number[][];
   weekdayScores: { day: string; score: number }[];
   topPosts: Post[];
 }
@@ -39,8 +37,8 @@ export default function AnalyticsPage() {
 
   function exportCSV(sep = ",") {
     if (!data) return;
-    const header = ["Data", "Seguidores", "Alcance", "Impressões", "Engajamento", "Cliques"];
-    const rows = data.series.map((s) => [s.day, s.followers, s.reach, s.impressions, s.engagement, s.clicks]);
+    const header = ["Data", "Seguidores", "Alcance", "Visualizações", "Engajamento"];
+    const rows = data.series.map((s) => [s.day, s.followers, s.reach, s.views, s.engagement]);
     const csv = [header, ...rows].map((r) => r.join(sep)).join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -54,9 +52,8 @@ export default function AnalyticsPage() {
   const kpis = [
     { label: "Seguidores", value: k ? fmt(k.followers) : "…", delta: k?.followersDelta, icon: Users },
     { label: "Alcance", value: k ? fmt(k.reach) : "…", delta: k?.reachDelta, icon: Eye },
-    { label: "Impressões", value: k ? fmt(k.impressions) : "…", delta: k?.impressionsDelta, icon: ImageIcon },
+    { label: "Visualizações", value: k ? fmt(k.views) : "…", delta: k?.viewsDelta, icon: ImageIcon },
     { label: "Engajamento", value: k ? fmt(k.engagement) : "…", delta: k?.engagementDelta, icon: Heart },
-    { label: "Cliques", value: k ? fmt(k.clicks) : "…", delta: k?.clicksDelta, icon: MousePointerClick },
     { label: "Taxa de engaj.", value: k ? `${k.engagementRate.toFixed(1).replace(".", ",")}%` : "…", delta: k?.engagementDelta, icon: Percent },
   ];
 
@@ -155,13 +152,13 @@ export default function AnalyticsPage() {
           ) : <div className="skeleton h-full" />}
         </ChartCard>
 
-        {/* Clicks & CTR */}
-        <ChartCard title="Cliques no link" sub="Tráfego gerado a partir das publicações">
+        {/* Visualizações */}
+        <ChartCard title="Visualizações" sub="Total de visualizações do conteúdo publicado por dia">
           {data ? (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data.series} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="gClk" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="gViews" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#3F7D5D" stopOpacity={0.25} /><stop offset="100%" stopColor="#3F7D5D" stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -169,7 +166,7 @@ export default function AnalyticsPage() {
                 <XAxis dataKey="day" tickFormatter={dayLabel} tick={{ fontSize: 11, fill: "var(--muted)" }} tickLine={false} axisLine={false} minTickGap={30} />
                 <YAxis tick={{ fontSize: 11, fill: "var(--muted)" }} tickLine={false} axisLine={false} tickFormatter={(v) => fmt(v as number)} />
                 <Tooltip content={<Tip />} />
-                <Area type="monotone" dataKey="clicks" name="Cliques" stroke="#3F7D5D" strokeWidth={2} fill="url(#gClk)" />
+                <Area type="monotone" dataKey="views" name="Visualizações" stroke="#3F7D5D" strokeWidth={2} fill="url(#gViews)" />
               </AreaChart>
             </ResponsiveContainer>
           ) : <div className="skeleton h-full" />}

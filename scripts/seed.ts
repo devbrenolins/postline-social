@@ -181,7 +181,7 @@ async function main() {
       metrics: {
         likes: Math.floor(engBase), comments: Math.floor(engBase * (0.04 + rnd() * 0.08)),
         shares: Math.floor(engBase * (0.05 + rnd() * 0.12)), saves: Math.floor(engBase * (0.06 + rnd() * 0.14)),
-        reach: Math.floor(engBase * (6 + rnd() * 8)), clicks: Math.floor(engBase * (0.2 + rnd() * 0.5)),
+        reach: Math.floor(engBase * (6 + rnd() * 8)), views: Math.floor(engBase * (8 + rnd() * 10)), clicks: 0,
       },
     });
   });
@@ -201,7 +201,7 @@ async function main() {
       metrics: {
         likes: Math.floor(engBase), comments: Math.floor(engBase * (0.04 + rnd() * 0.08)),
         shares: Math.floor(engBase * 0.08), saves: Math.floor(engBase * 0.09),
-        reach: Math.floor(engBase * 8), clicks: Math.floor(engBase * 0.3),
+        reach: Math.floor(engBase * 8), views: Math.floor(engBase * 10), clicks: 0,
       },
     });
   }

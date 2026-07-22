@@ -232,8 +232,14 @@ export const posts = pgTable(
     publishedAt: timestamp("published_at", { withTimezone: true }),
     labels: jsonb("labels").$type<string[]>().default([]),
     metrics: jsonb("metrics")
-      .$type<{ likes: number; comments: number; shares: number; saves: number; reach: number; clicks: number }>()
-      .default({ likes: 0, comments: 0, shares: 0, saves: 0, reach: 0, clicks: 0 }),
+      .$type<{ likes: number; comments: number; shares: number; saves: number; reach: number; views: number; clicks: number }>()
+      .default({ likes: 0, comments: 0, shares: 0, saves: 0, reach: 0, views: 0, clicks: 0 }),
+    // IDs de mídia no Instagram por conta (para buscar insights reais do post).
+    externalMedia: jsonb("external_media")
+      .$type<{ socialAccountId: string; mediaId: string }[]>()
+      .default([]),
+    // Última vez que as métricas deste post foram sincronizadas da API.
+    metricsSyncedAt: timestamp("metrics_synced_at", { withTimezone: true }),
     version: integer("version").notNull().default(1),
     history: jsonb("history").$type<{ caption: string; at: string }[]>().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

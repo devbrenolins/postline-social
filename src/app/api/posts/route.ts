@@ -92,15 +92,3 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ post }, { status: 201 });
 }
-
-export function fakeMetrics() {
-  const likes = Math.floor(180 + Math.random() * 1200);
-  return {
-    likes,
-    comments: Math.floor(likes * (0.05 + Math.random() * 0.07)),
-    shares: Math.floor(likes * (0.06 + Math.random() * 0.1)),
-    saves: Math.floor(likes * (0.08 + Math.random() * 0.1)),
-    reach: likes * (7 + Math.floor(Math.random() * 6)),
-    clicks: Math.floor(likes * 0.3),
-  };
-}

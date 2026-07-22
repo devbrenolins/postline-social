@@ -102,15 +102,28 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
   }
 
   const results: PublishResult[] = [];
+  const externalMedia: { socialAccountId: string; mediaId: string }[] = [];
   for (const acc of usable) {
-    results.push(await publishToAccount(acc.externalId!, acc.accessToken!, acc.handle, mediaUrl, post.caption ?? ""));
+    const r = await publishToAccount(acc.externalId!, acc.accessToken!, acc.handle, mediaUrl, post.caption ?? "");
+    results.push(r);
+    if (r.ok && r.mediaId) externalMedia.push({ socialAccountId: acc.id, mediaId: r.mediaId });
   }
 
   const anyOk = results.some((r) => r.ok);
   const status = anyOk ? "published" : "failed";
   await db
     .update(posts)
-    .set({ status, publishedAt: anyOk ? new Date() : null, updatedAt: new Date() })
+    // Guarda os media IDs do IG para buscar insights reais depois; zera as
+    // métricas (serão preenchidas na próxima sincronização) e marca como
+    // pendente de sync para o refresh atualizar assim que possível.
+    .set({
+      status,
+      publishedAt: anyOk ? new Date() : null,
+      externalMedia: anyOk ? externalMedia : [],
+      metrics: { likes: 0, comments: 0, shares: 0, saves: 0, reach: 0, views: 0, clicks: 0 },
+      metricsSyncedAt: null,
+      updatedAt: new Date(),
+    })
     .where(eq(posts.id, post.id));
 
   return { status, results };

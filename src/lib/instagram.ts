@@ -204,14 +204,14 @@ export async function getAccountSnapshot(igId: string, token: string): Promise<A
   };
 
   try {
-    const insights = await graph<{ data: Array<{ name: string; values: Array<{ value: number }> }> }>(
+    // Alcance do dia via total_value (formato atual da API; profile_views foi
+    // descontinuado no nível de conta em versões recentes).
+    const insights = await graph<{ data: Array<{ name: string; total_value?: { value?: number } }> }>(
       `/${igId}/insights`,
-      { access_token: token, metric: "reach,profile_views", period: "day" }
+      { access_token: token, metric: "reach", period: "day", metric_type: "total_value" }
     );
     for (const m of insights.data ?? []) {
-      const value = m.values?.[m.values.length - 1]?.value ?? 0;
-      if (m.name === "reach") snapshot.reach = value;
-      if (m.name === "profile_views") snapshot.profileViews = value;
+      if (m.name === "reach") snapshot.reach = m.total_value?.value ?? 0;
     }
   } catch {
     // métricas de insights podem exigir período/idade da conta — ignora
@@ -269,6 +269,61 @@ export async function publishMediaContainer(igId: string, token: string, creatio
     creation_id: creationId,
   });
   return data.id;
+}
+
+export type RecentMedia = {
+  id: string;
+  caption: string;
+  mediaType: string;
+  mediaUrl: string | null;
+  permalink: string;
+  timestamp: string;
+  likeCount: number;
+  commentsCount: number;
+};
+
+/** Lista as publicações recentes da conta (dados básicos + curtidas/comentários, que já vêm de graça). */
+export async function getRecentMedia(igId: string, token: string, limit = 24): Promise<RecentMedia[]> {
+  const data = await graph<{ data?: Array<Record<string, unknown>> }>(`/${igId}/media`, {
+    access_token: token,
+    fields: "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count",
+    limit: String(limit),
+  });
+  return (data.data ?? []).map((m) => ({
+    id: String(m.id ?? ""),
+    caption: String(m.caption ?? ""),
+    mediaType: String(m.media_type ?? ""),
+    mediaUrl: (m.media_url as string) ?? (m.thumbnail_url as string) ?? null,
+    permalink: String(m.permalink ?? ""),
+    timestamp: String(m.timestamp ?? ""),
+    likeCount: Number(m.like_count ?? 0),
+    commentsCount: Number(m.comments_count ?? 0),
+  }));
+}
+
+export type MediaInsights = { likes: number; comments: number; shares: number; saves: number; reach: number; views: number };
+
+/**
+ * Insights reais de uma mídia publicada (post do feed/reel). Retorna alcance,
+ * curtidas, comentários, salvamentos, compartilhamentos e visualizações.
+ * Tenta incluir `views`; se a mídia não suportar, refaz sem essa métrica.
+ */
+export async function getMediaInsights(mediaId: string, token: string): Promise<MediaInsights> {
+  const parse = (data: { data?: Array<{ name: string; values?: Array<{ value: number }>; total_value?: { value?: number } }> }): MediaInsights => {
+    const out: MediaInsights = { likes: 0, comments: 0, shares: 0, saves: 0, reach: 0, views: 0 };
+    const map: Record<string, keyof MediaInsights> = { likes: "likes", comments: "comments", shares: "shares", saved: "saves", reach: "reach", views: "views" };
+    for (const m of data.data ?? []) {
+      const key = map[m.name];
+      if (key) out[key] = m.total_value?.value ?? m.values?.[m.values.length - 1]?.value ?? 0;
+    }
+    return out;
+  };
+  try {
+    return parse(await graph(`/${mediaId}/insights`, { access_token: token, metric: "reach,likes,comments,saved,shares,views" }));
+  } catch {
+    // `views` não é suportado por todo tipo de mídia — refaz sem ela.
+    return parse(await graph(`/${mediaId}/insights`, { access_token: token, metric: "reach,likes,comments,saved,shares" }));
+  }
 }
 
 /** Verifica o status de processamento de um container (útil para vídeos). */

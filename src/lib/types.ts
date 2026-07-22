@@ -1,7 +1,7 @@
 export type PlatformT = "instagram" | "facebook" | "x" | "linkedin" | "tiktok" | "youtube";
 
 export interface PostMetrics {
-  likes: number; comments: number; shares: number; saves: number; reach: number; clicks: number;
+  likes: number; comments: number; shares: number; saves: number; reach: number; views: number; clicks: number;
 }
 
 export interface Post {
