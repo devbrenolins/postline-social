@@ -5,6 +5,10 @@ import { getSessionUser } from "@/lib/auth";
 import { publishPost } from "@/lib/publishing";
 import { and, desc, asc, eq, isNull, isNotNull, sql, SQL } from "drizzle-orm";
 
+// Publicar no Instagram envolve esperar o container processar; evita que a
+// função serverless seja cortada antes de concluir.
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });

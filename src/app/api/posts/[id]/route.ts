@@ -5,6 +5,8 @@ import { getSessionUser } from "@/lib/auth";
 import { and, eq, isNull } from "drizzle-orm";
 import { publishPost } from "@/lib/publishing";
 
+export const maxDuration = 60;
+
 async function loadPost(id: string, workspaceId: string) {
   const rows = await db.select().from(posts)
     .where(and(eq(posts.id, id), eq(posts.workspaceId, workspaceId), isNull(posts.deletedAt)))

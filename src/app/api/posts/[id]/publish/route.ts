@@ -4,6 +4,8 @@ import { activityLogs, notifications } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { publishPost } from "@/lib/publishing";
 
+export const maxDuration = 60;
+
 /** Publica um post imediatamente nas contas Instagram conectadas. */
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();

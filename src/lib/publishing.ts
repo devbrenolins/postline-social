@@ -9,6 +9,22 @@ function isVideo(url: string) {
   return /\.(mp4|mov|m4v)(\?|$)/i.test(url);
 }
 
+/**
+ * Aguarda o container de mídia ficar FINISHED antes de publicar. O Instagram
+ * processa a mídia de forma assíncrona — inclusive imagens, que costumam levar
+ * 1–2s. Publicar antes do FINISHED faz o media_publish falhar (foi a causa dos
+ * 502 ao postar no feed).
+ */
+async function waitForContainer(creationId: string, token: string, attempts: number, delayMs: number) {
+  for (let i = 0; i < attempts; i++) {
+    const status = await getContainerStatus(creationId, token);
+    if (status === "FINISHED") return;
+    if (status === "ERROR") throw new Error("Falha ao processar a mídia no Instagram.");
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error("A mídia demorou demais para processar no Instagram. Tente novamente.");
+}
+
 async function publishToAccount(
   igId: string,
   token: string,
@@ -17,19 +33,18 @@ async function publishToAccount(
   caption: string
 ): Promise<PublishResult> {
   try {
+    const creationId = isVideo(mediaUrl)
+      ? await createMediaContainer(igId, token, { videoUrl: mediaUrl, caption, mediaType: "REELS" })
+      : await createMediaContainer(igId, token, { imageUrl: mediaUrl, caption });
+
+    // Vídeos processam mais devagar (até ~60s); imagens costumam ficar prontas
+    // em 1–2s, mas ainda precisam do FINISHED antes de publicar.
     if (isVideo(mediaUrl)) {
-      const creationId = await createMediaContainer(igId, token, { videoUrl: mediaUrl, caption, mediaType: "REELS" });
-      // Vídeos processam de forma assíncrona: aguarda até ~60s.
-      for (let i = 0; i < 20; i++) {
-        const status = await getContainerStatus(creationId, token);
-        if (status === "FINISHED") break;
-        if (status === "ERROR") throw new Error("Falha ao processar o vídeo no Instagram.");
-        await new Promise((r) => setTimeout(r, 3000));
-      }
-      const mediaId = await publishMediaContainer(igId, token, creationId);
-      return { account: handle, ok: true, mediaId };
+      await waitForContainer(creationId, token, 20, 3000);
+    } else {
+      await waitForContainer(creationId, token, 15, 1000);
     }
-    const creationId = await createMediaContainer(igId, token, { imageUrl: mediaUrl, caption });
+
     const mediaId = await publishMediaContainer(igId, token, creationId);
     return { account: handle, ok: true, mediaId };
   } catch (e) {

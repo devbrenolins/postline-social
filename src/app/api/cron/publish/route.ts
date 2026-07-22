@@ -4,6 +4,8 @@ import { posts, notifications } from "@/db/schema";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import { publishPost } from "@/lib/publishing";
 
+export const maxDuration = 60;
+
 /**
  * Worker de publicação agendada. Chame periodicamente (ex.: Vercel Cron a cada
  * minuto) com o header `Authorization: Bearer <CRON_SECRET>`.
