@@ -68,7 +68,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
       <Sidebar open={drawer} onClose={() => setDrawer(false)} />
       <div className="flex min-h-dvh flex-col">
         <Topbar onMenu={() => setDrawer(true)} />
-        <main className="flex-1 px-4 pb-16 pt-5 sm:px-6 lg:px-8">
+        <main className="flex-1 px-4 pb-[calc(4rem_+_env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-350">{children}</div>
         </main>
       </div>
@@ -108,7 +108,7 @@ function SidebarContent() {
   const { open: openComposer } = useComposer();
 
   return (
-    <aside className="flex h-full flex-col border-r border-border bg-surface">
+    <aside className="flex h-full flex-col border-r border-border bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <div className="flex items-center justify-between px-4 pb-1 pt-4">
         <Dropdown
           align="left"
@@ -281,7 +281,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
   const unread = data?.notifications.filter((n) => !n.read) ?? [];
 
   return (
-    <header data-topbar className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
+    <header data-topbar className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex h-14 max-w-350 items-center gap-3 px-4 sm:px-6 lg:px-8">
         <button onClick={onMenu} className="rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground lg:hidden" aria-label="Abrir menu">
           <Menu size={18} />
