@@ -1,4 +1,3 @@
-import sharp from "sharp";
 import { db } from "@/db";
 import { media } from "@/db/schema";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -9,8 +8,13 @@ export const MEDIA_BUCKET = "media";
  * Normaliza qualquer imagem para JPEG publicável no Instagram: achata a
  * transparência em fundo branco, respeita a orientação EXIF e limita a
  * largura a 1440px (máximo aceito pelo feed). Só reduz, nunca amplia.
+ *
+ * O `sharp` é carregado sob demanda (import dinâmico) porque usa binários
+ * nativos: se ele falhar em carregar no runtime, o erro é capturado pelo
+ * chamador e o upload segue com o arquivo original — em vez de derrubar a rota.
  */
 export async function toInstagramJpeg(buffer: Buffer): Promise<Buffer> {
+  const { default: sharp } = await import("sharp");
   return sharp(buffer)
     .rotate()
     .resize({ width: 1440, withoutEnlargement: true })

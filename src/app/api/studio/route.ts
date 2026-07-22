@@ -134,14 +134,19 @@ export async function POST(req: NextRequest) {
       const result = await generateImage(enriched, size, references);
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: enriched, resultText: "Criativo gerado", model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
 
-      // A IA devolve PNG em base64. Converte para JPEG e salva no Storage
-      // público + biblioteca, para o criativo já ficar publicável no Instagram
-      // (que não aceita data: URI nem PNG).
+      // A IA já devolve JPEG em base64. Normaliza (resize/EXIF) quando possível
+      // e salva no Storage público + biblioteca, para o criativo já ficar
+      // publicável no Instagram (que não aceita data: URI).
       let mediaUrl: string | undefined;
       let mediaId: string | undefined;
       try {
-        const pngBuffer = Buffer.from(result.dataUrl.split(",")[1] ?? "", "base64");
-        const jpeg = await toInstagramJpeg(pngBuffer);
+        const rawBuffer = Buffer.from(result.dataUrl.split(",")[1] ?? "", "base64");
+        let jpeg: Buffer = rawBuffer;
+        try {
+          jpeg = await toInstagramJpeg(rawBuffer);
+        } catch {
+          // sharp indisponível: usa o JPEG cru da OpenAI (já é publicável).
+        }
         const saved = await saveMedia({
           workspaceId: wid,
           buffer: jpeg,
@@ -153,7 +158,7 @@ export async function POST(req: NextRequest) {
         mediaUrl = saved.url;
         mediaId = saved.media.id;
       } catch {
-        // Se o upload falhar, ainda retorna o dataUrl para preview/download.
+        // Se o upload falhar por completo, ainda retorna o dataUrl para preview.
       }
 
       return NextResponse.json({ ...result, url: mediaUrl, mediaId });

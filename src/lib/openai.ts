@@ -80,16 +80,18 @@ export async function generateImage(prompt: string, size: "1024x1024" | "1024x15
     form.set("prompt", prompt);
     form.set("size", size);
     form.set("quality", "medium");
-    form.set("output_format", "png");
+    // JPEG direto da OpenAI: já é o formato que o Instagram publica e evita
+    // depender de conversão nativa (sharp) neste caminho.
+    form.set("output_format", "jpeg");
     references.forEach((reference, index) => {
       const { blob, type } = dataUrlToBlob(reference.dataUrl);
       form.append("image[]", blob, reference.name || `referencia-${index + 1}.${type.split("/")[1]}`);
     });
     data = await openAiRequest("/images/edits", form);
   } else {
-    data = await openAiRequest("/images/generations", { model, prompt, size, quality: "medium", output_format: "png" });
+    data = await openAiRequest("/images/generations", { model, prompt, size, quality: "medium", output_format: "jpeg" });
   }
   const base64 = data?.data?.[0]?.b64_json;
   if (!base64) throw new Error("A IA não retornou a imagem. Tente novamente.");
-  return { dataUrl: `data:image/png;base64,${base64}`, model, usage: usageOf(data, 0, 12_000) };
+  return { dataUrl: `data:image/jpeg;base64,${base64}`, model, usage: usageOf(data, 0, 12_000) };
 }
