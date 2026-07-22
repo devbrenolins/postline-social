@@ -5,23 +5,21 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   Users, Eye, Heart, TrendingUp, TrendingDown, ArrowUpRight, CalendarClock,
-  Sparkles, Bell, ChevronRight, MousePointerClick,
+  Bell, ChevronRight, Repeat2,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, LineChart, Line,
+  BarChart, Bar, LineChart, Line,
 } from "recharts";
 import { cn, Badge, Button, PlatformChip, Avatar, fmt, timeAgo, POST_STATUS } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
 import { useComposer } from "@/components/composer";
 import type { Post } from "@/lib/types";
 
-interface SeriesPoint { day: string; followers: number; reach: number; impressions: number; engagement: number; clicks: number; }
+interface SeriesPoint { day: string; followers: number; reach: number; views: number; engagement: number; }
 interface Analytics {
   series: SeriesPoint[];
-  kpis: { followers: number; reach: number; impressions: number; engagement: number; clicks: number; ctr: number; engagementRate: number; followersDelta: number; reachDelta: number; impressionsDelta: number; engagementDelta: number; clicksDelta: number };
-  byPlatform: { platform: string; reach: number; engagement: number }[];
-  heatmap: number[][];
+  kpis: { followers: number; reach: number; views: number; engagement: number; engagementRate: number; followersDelta: number; reachDelta: number; viewsDelta: number; engagementDelta: number };
   weekdayScores: { day: string; score: number }[];
   topPosts: Post[];
 }
@@ -53,7 +51,6 @@ export default function DashboardPage() {
   const today = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
 
   const k = analytics?.kpis;
-  const platformTotal = analytics?.byPlatform.reduce((s, p) => s + p.engagement, 0) ?? 1;
 
   return (
     <div className="space-y-5 animate-fade-up">
@@ -78,7 +75,7 @@ export default function DashboardPage() {
         <KpiCard label="Seguidores" value={k ? fmt(k.followers) : "…"} delta={k?.followersDelta} icon={<Users size={16} />} loading={!k} spark={analytics?.series.map((s) => s.followers) ?? []} sparkKey="followers" />
         <KpiCard label="Alcance" value={k ? fmt(k.reach) : "…"} delta={k?.reachDelta} icon={<Eye size={16} />} loading={!k} spark={analytics?.series.map((s) => s.reach) ?? []} sparkKey="reach" />
         <KpiCard label="Engajamento" value={k ? fmt(k.engagement) : "…"} delta={k?.engagementDelta} icon={<Heart size={16} />} loading={!k} spark={analytics?.series.map((s) => s.engagement) ?? []} sparkKey="engagement" sub={k ? `${k.engagementRate.toFixed(1).replace(".", ",")}% do alcance` : undefined} />
-        <KpiCard label="Cliques" value={k ? fmt(k.clicks) : "…"} delta={k?.clicksDelta} icon={<MousePointerClick size={16} />} loading={!k} spark={analytics?.series.map((s) => s.clicks) ?? []} sparkKey="clicks" sub={k ? `CTR ${k.ctr.toFixed(1).replace(".", ",")}%` : undefined} />
+        <KpiCard label="Visualizações" value={k ? fmt(k.views) : "…"} delta={k?.viewsDelta} icon={<Repeat2 size={16} />} loading={!k} spark={analytics?.series.map((s) => s.views) ?? []} sparkKey="views" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -86,12 +83,12 @@ export default function DashboardPage() {
         <div className="rounded-2xl border border-border bg-surface p-5 xl:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h3 className="text-[14px] font-semibold">Alcance e impressões</h3>
+              <h3 className="text-[14px] font-semibold">Alcance e visualizações</h3>
               <p className="text-[12px] text-muted">Todas as redes conectadas</p>
             </div>
             <div className="flex items-center gap-4 text-[11.5px] text-muted">
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: "var(--accent)" }} /> Alcance</span>
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: "#8a8fa3" }} /> Impressões</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: "#8a8fa3" }} /> Visualizações</span>
             </div>
           </div>
           <div className="h-64">
@@ -110,7 +107,7 @@ export default function DashboardPage() {
                   <XAxis dataKey="day" tickFormatter={dayLabel} tick={{ fontSize: 11, fill: "var(--muted)" }} tickLine={false} axisLine={false} minTickGap={28} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--muted)" }} tickLine={false} axisLine={false} tickFormatter={(v) => fmt(v as number)} />
                   <Tooltip content={<ChartTip />} />
-                  <Area type="monotone" dataKey="impressions" name="Impressões" stroke="#8a8fa3" strokeWidth={1.5} fill="transparent" strokeDasharray="4 3" />
+                  <Area type="monotone" dataKey="views" name="Visualizações" stroke="#8a8fa3" strokeWidth={1.5} fill="transparent" strokeDasharray="4 3" />
                   <Area type="monotone" dataKey="reach" name="Alcance" stroke="var(--accent)" strokeWidth={2} fill="url(#gReach)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -175,7 +172,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {/* Followers growth */}
         <div className="rounded-2xl border border-border bg-surface p-5">
           <h3 className="text-[14px] font-semibold">Crescimento de seguidores</h3>
@@ -198,57 +195,21 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Platform split */}
+        {/* Melhores dias (engajamento real por dia da semana) */}
         <div className="rounded-2xl border border-border bg-surface p-5">
-          <h3 className="text-[14px] font-semibold">Engajamento por rede</h3>
-          <p className="text-[12px] text-muted">Distribuição no período</p>
-          <div className="mt-1 flex items-center gap-2">
-            <div className="h-36 w-36 shrink-0">
-              {!analytics ? <div className="skeleton h-full rounded-full" /> : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={analytics.byPlatform} dataKey="engagement" nameKey="platform" innerRadius={38} outerRadius={60} paddingAngle={3} strokeWidth={0}>
-                      {analytics.byPlatform.map((p) => (
-                        <Cell key={p.platform} fill={platformColor(p.platform)} />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<ChartTip />} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              {(analytics?.byPlatform ?? []).slice(0, 5).map((p) => (
-                <div key={p.platform} className="flex items-center gap-2 text-[12px]">
-                  <PlatformChip platform={p.platform} size={11} />
-                  <span className="flex-1 capitalize">{p.platform}</span>
-                  <span className="font-semibold tnum">{Math.round((p.engagement / platformTotal) * 100)}%</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Best times */}
-        <div className="rounded-2xl border border-border bg-surface p-5">
-          <h3 className="flex items-center gap-2 text-[14px] font-semibold"><Sparkles size={14} className="text-accent" /> Melhores horários</h3>
-          <p className="text-[12px] text-muted">Probabilidade de engajamento</p>
-          <div className="mt-4 space-y-1">
-            {(analytics?.heatmap ?? []).map((row, d) => (
-              <div key={d} className="flex items-center gap-1">
-                <span className="w-7 text-[10px] font-medium text-muted">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][d]}</span>
-                <div className="grid flex-1 grid-cols-12 gap-[3px]">
-                  {row.map((v, t) => (
-                    <div key={t} title={`${String(t * 2).padStart(2, "0")}h — ${Math.round(Math.min(v, 1.6) / 1.6 * 100)}%`}
-                      className="h-3.5 rounded-[4px] transition-transform hover:scale-110"
-                      style={{ background: "var(--accent)", opacity: Math.max(0.06, Math.min(v / 1.6, 1)) }} />
-                  ))}
-                </div>
-              </div>
-            ))}
-            <div className="flex justify-between pl-7 pt-1 text-[9.5px] text-muted">
-              <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span>
-            </div>
+          <h3 className="text-[14px] font-semibold">Melhores dias</h3>
+          <p className="text-[12px] text-muted">Engajamento médio por dia da semana</p>
+          <div className="mt-3 h-36">
+            {!analytics ? <div className="skeleton h-full" /> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={analytics.weekdayScores} margin={{ top: 4, right: 4, left: -26, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: 10.5, fill: "var(--muted)" }} tickLine={false} axisLine={false} />
+                  <YAxis hide domain={[0, 100]} />
+                  <Bar dataKey="score" name="Engajamento" radius={[5, 5, 2, 2]} fill="var(--accent)" maxBarSize={30} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       </div>
@@ -292,11 +253,6 @@ export default function DashboardPage() {
       </div>
     </div>
   );
-}
-
-function platformColor(p: string): string {
-  const map: Record<string, string> = { instagram: "#C45C8E", facebook: "#6A8AC4", x: "#3A8BD9", linkedin: "#4F83AC", tiktok: "#8B7FB8", youtube: "#B0584F" };
-  return map[p] ?? "#8a8fa3";
 }
 
 function KpiCard({ label, value, delta, icon, sub, loading, spark, sparkKey }: {
