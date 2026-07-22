@@ -219,6 +219,19 @@ export async function getAccountSnapshot(igId: string, token: string): Promise<A
   return snapshot;
 }
 
+/**
+ * Inscreve a conta nos eventos de webhook (comentários, mensagens, menções).
+ * Sem isso, o Instagram não envia NENHUM evento — nem comentário nem DM.
+ * Deve ser chamado após conectar a conta.
+ */
+export async function subscribeToWebhooks(
+  igId: string,
+  token: string,
+  fields = "comments,messages"
+): Promise<void> {
+  await graphPost(`/${igId}/subscribed_apps`, { access_token: token, subscribed_fields: fields });
+}
+
 /** Envia um direct (mensagem) a partir de uma conta IG Business. */
 export async function sendDirectMessage(igId: string, token: string, recipientId: string, text: string) {
   return graphPost(`/${igId}/messages`, {

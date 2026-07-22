@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { directAutomations, socialAccounts, inboxItems } from "@/db/schema";
+import { directAutomations, socialAccounts, inboxItems, notifications } from "@/db/schema";
 import { verifyMetaSignature } from "@/lib/meta";
 import { sendDirectMessage } from "@/lib/instagram";
 
@@ -17,7 +17,14 @@ export async function GET(req: NextRequest) {
 }
 
 type Messaging = { sender?: { id?: string }; message?: { text?: string; is_echo?: boolean } };
-type Entry = { id?: string; messaging?: Messaging[] };
+type CommentValue = {
+  id?: string;
+  text?: string;
+  from?: { id?: string; username?: string };
+  media?: { id?: string };
+};
+type Change = { field?: string; value?: CommentValue };
+type Entry = { id?: string; messaging?: Messaging[]; changes?: Change[] };
 
 export async function POST(req: NextRequest) {
   const raw = await req.text();
@@ -46,6 +53,35 @@ export async function POST(req: NextRequest) {
       .from(directAutomations)
       .where(and(eq(directAutomations.workspaceId, account.workspaceId), eq(directAutomations.active, true), isNull(directAutomations.deletedAt)));
 
+    // ---- Comentários (entry.changes com field "comments") ----
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "comments") continue;
+      const c = change.value ?? {};
+      const commentText = (c.text ?? "").trim();
+      if (!commentText) continue;
+      // Não notifica o comentário/resposta feito pela própria conta.
+      if (c.from?.id && c.from.id === igId) continue;
+
+      const username = c.from?.username || c.from?.id || "alguém";
+      await db.insert(inboxItems).values({
+        workspaceId: account.workspaceId,
+        platform: "instagram",
+        type: "comment",
+        authorName: username,
+        authorHandle: username,
+        text: commentText,
+        postPreview: c.media?.id ? `Mídia ${c.media.id}` : "",
+        status: "unread",
+      });
+      await db.insert(notifications).values({
+        workspaceId: account.workspaceId,
+        title: `Novo comentário de @${username}`,
+        body: commentText.slice(0, 180),
+        kind: "info",
+      });
+    }
+
+    // ---- Mensagens diretas (entry.messaging) ----
     for (const event of entry.messaging ?? []) {
       const senderId = event.sender?.id;
       const text = event.message?.text?.toLowerCase().trim();
@@ -60,6 +96,12 @@ export async function POST(req: NextRequest) {
         authorHandle: senderId,
         text: event.message?.text ?? "",
         status: "unread",
+      });
+      await db.insert(notifications).values({
+        workspaceId: account.workspaceId,
+        title: "Nova mensagem no Instagram",
+        body: (event.message?.text ?? "").slice(0, 180),
+        kind: "info",
       });
 
       const rule = rules.find((item) => item.triggerKeywords.some((k) => text.includes(k.toLowerCase())));

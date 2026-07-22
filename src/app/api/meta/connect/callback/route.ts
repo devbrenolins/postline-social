@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { db } from "@/db";
 import { socialAccounts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
-import { exchangeCodeForToken, getLongLivedToken, getSelfAccount, META_SCOPES } from "@/lib/instagram";
+import { exchangeCodeForToken, getLongLivedToken, getSelfAccount, subscribeToWebhooks, META_SCOPES } from "@/lib/instagram";
 
 const STATE_COOKIE = "meta_oauth_state";
 
@@ -71,6 +71,14 @@ export async function GET(req: NextRequest) {
           updatedAt: new Date(),
         },
       });
+
+    // Ativa os eventos de webhook (comentários/mensagens) para a conta.
+    // Best-effort: se falhar, a conexão ainda é válida.
+    try {
+      await subscribeToWebhooks(acc.igId, longToken);
+    } catch {
+      // Sem permissão/webhook não configurado no app — segue mesmo assim.
+    }
 
     await db.insert(activityLogs).values({
       workspaceId,
