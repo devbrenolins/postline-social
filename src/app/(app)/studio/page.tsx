@@ -14,7 +14,7 @@ type Competitor = { id: string; name: string; handle: string; platform: string; 
 type ReferenceImage = { name: string; type: string; dataUrl?: string; mediaId?: string; previewUrl?: string };
 type CreditBucket = { used: number; remaining: number; dailyCredits: number; dailyGenerations: number; generations: number; reserveTokens: number; tokensUsed: number; label: string };
 type StudioData = {
-  status: { openai: boolean; meta: boolean; textModel: string; imageModel: string };
+  status: { ai: boolean; meta: boolean; textModel: string; imageModel: string };
   automations: Automation[];
   competitors: Competitor[];
   dailyTrend: { text: string; updatedAt: string } | null;
@@ -46,7 +46,7 @@ export default function StudioPage() {
           <p className="mt-1 text-[13.5px] text-muted">Crie conteúdo, automatize conversas e encontre oportunidades em tempo real.</p>
         </div>
         <div className="flex gap-2">
-          <StatusPill ok={data?.status.openai} label="OpenAI" />
+          <StatusPill ok={data?.status.ai} label="Gemini" />
           <StatusPill ok={data?.status.meta} label="Instagram" />
         </div>
       </div>
@@ -62,8 +62,8 @@ export default function StudioPage() {
         ]} />
       </div>
 
-      {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.openai)} reload={load} />}
-      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.openai)} reload={load} />}
+      {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.ai)} reload={load} />}
+      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.ai)} reload={load} />}
       {tab === "direct" && <DirectAutomation data={data} reload={load} />}
       {tab === "intelligence" && <Intelligence data={data} reload={load} />}
     </div>
@@ -89,8 +89,8 @@ function StatusPill({ ok, label }: { ok?: boolean; label: string }) {
   </div>;
 }
 
-function ConnectionWarning({ provider }: { provider: "OpenAI" | "Meta" }) {
-  return <InlineError>{provider === "OpenAI" ? "Adicione OPENAI_API_KEY nas variáveis da Vercel para usar este recurso." : "Conecte as credenciais da Meta e configure o webhook para enviar directs reais."}</InlineError>;
+function ConnectionWarning({ provider }: { provider: "Gemini" | "Meta" }) {
+  return <InlineError>{provider === "Gemini" ? "Adicione GEMINI_API_KEY nas variáveis da Vercel para usar este recurso." : "Conecte as credenciais da Meta e configure o webhook para enviar directs reais."}</InlineError>;
 }
 
 function ScriptGenerator({ configured, reload }: { configured: boolean; reload: () => void }) {
@@ -107,7 +107,7 @@ function ScriptGenerator({ configured, reload }: { configured: boolean; reload: 
   }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Briefing do roteiro" icon={<Video size={17} />}>
-      {!configured && <ConnectionWarning provider="OpenAI" />}
+      {!configured && <ConnectionWarning provider="Gemini" />}
       <Field label="Tema ou objetivo"><textarea className={cn(inputCls, "h-24 py-3 resize-none")} value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} placeholder="Ex.: 3 erros que impedem sua pele de absorver o sérum" /></Field>
       <Field label="Nicho"><input className={inputCls} value={form.niche} onChange={(e) => setForm({ ...form, niche: e.target.value })} placeholder="Ex.: skincare premium" /></Field>
       <div className="grid gap-3 sm:grid-cols-2"><Field label="Formato"><select className={inputCls} value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}><option>Instagram Reels</option><option>TikTok</option><option>YouTube Shorts</option><option>Carrossel</option></select></Field><Field label="Duração"><select className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })}><option>15 segundos</option><option>30 segundos</option><option>45 segundos</option><option>60 segundos</option></select></Field></div>
@@ -127,7 +127,7 @@ function CreativeGenerator({ configured, reload }: { configured: boolean; reload
   async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); setSavedUrl(data.url ?? ""); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
-      {!configured && <ConnectionWarning provider="OpenAI" />}
+      {!configured && <ConnectionWarning provider="Gemini" />}
       <Field label="O que você quer criar?"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ex.: foto publicitária de um sérum botânico sobre pedra rosada, folhas ao redor..." /></Field>
       <Field label="Estilo visual"><input className={inputCls} value={style} onChange={(e) => setStyle(e.target.value)} /></Field>
       <Field label="Formato"><select className={inputCls} value={size} onChange={(e) => setSize(e.target.value)}><option value="1024x1024">Feed quadrado — 1:1</option><option value="1024x1536">Story / vertical — 2:3</option><option value="1536x1024">Paisagem — 3:2</option></select></Field>
@@ -224,7 +224,7 @@ function Intelligence({ data, reload }: { data: StudioData | null; reload: () =>
   useEffect(() => {
     if (mode !== "daily" || !data || dailyRequested) return;
     if (data.dailyTrend?.text) { setResult(data.dailyTrend.text); setDailyRequested(true); return; }
-    if (data.status.openai) { setDailyRequested(true); void research("daily"); }
+    if (data.status.ai) { setDailyRequested(true); void research("daily"); }
   // A primeira abertura do radar em cada sessão dispara no máximo uma leitura/geração diária.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, mode, dailyRequested]);
@@ -232,10 +232,10 @@ function Intelligence({ data, reload }: { data: StudioData | null; reload: () =>
     <div className="overflow-x-auto pb-1"><Segmented value={mode} onChange={(value) => { setMode(value); setResult(value === "daily" ? data?.dailyTrend?.text ?? "" : ""); setError(""); }} options={[{ value: "daily", label: "Tendências do dia" }, { value: "trends", label: "Buscar por nicho" }, { value: "music", label: "Músicas em alta" }, { value: "competitors", label: "Concorrentes" }]} /></div>
     <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
       <Panel title={mode === "daily" ? "Panorama geral de hoje" : mode === "trends" ? "Radar por nicho" : mode === "music" ? "Radar de áudios" : "Monitoramento competitivo"} icon={mode === "daily" || mode === "trends" ? <TrendingUp size={17} /> : mode === "music" ? <Music2 size={17} /> : <Radar size={17} />}>
-        {!data?.status.openai && <ConnectionWarning provider="OpenAI" />}
+        {!data?.status.ai && <ConnectionWarning provider="Gemini" />}
         {mode === "daily" ? <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-4"><p className="text-[13px] font-semibold">Resumo geral, sem filtro de nicho</p><p className="mt-1 text-[11.5px] leading-5 text-muted">Atualizado automaticamente uma vez por dia e exibido assim que você abre o radar. A mesma análise é reutilizada durante o dia para controlar custos.</p>{data?.dailyTrend?.updatedAt && <p className="mt-2 text-[10.5px] text-muted">Última atualização: {new Date(data.dailyTrend.updatedAt).toLocaleString("pt-BR")}</p>}</div> : mode !== "competitors" ? <><Field label="Nicho"><input className={inputCls} value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Ex.: cafeterias especiais em Salvador" /></Field><Field label="Redes prioritárias"><input className={inputCls} value={platform} onChange={(e) => setPlatform(e.target.value)} /></Field></> : <><div className="grid gap-2 sm:grid-cols-[1fr_1fr_120px]"><input className={inputCls} value={competitor.name} onChange={(e) => setCompetitor({ ...competitor, name: e.target.value })} placeholder="Nome" /><input className={inputCls} value={competitor.handle} onChange={(e) => setCompetitor({ ...competitor, handle: e.target.value })} placeholder="@perfil" /><select className={inputCls} value={competitor.platform} onChange={(e) => setCompetitor({ ...competitor, platform: e.target.value })}><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option></select></div><Button variant="outline" className="w-full" onClick={addCompetitor} disabled={!competitor.name || !competitor.handle}><Plus size={15} /> Adicionar concorrente</Button><div className="space-y-2">{(data?.competitors ?? []).map((c) => <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border px-3 py-2"><Radar size={14} className="text-accent" /><span className="flex-1 text-[12.5px]"><b>{c.name}</b> · @{c.handle}</span><button onClick={() => remove(c.id)} className="text-muted hover:text-danger"><Trash2 size={14} /></button></div>)}</div></>}
         {error && <InlineError>{error}</InlineError>}
-        <Button className="w-full" onClick={() => research()} loading={loading} disabled={!data?.status.openai || (mode !== "daily" && mode !== "competitors" ? !niche : mode === "competitors" ? !(data?.competitors.length) : false)}><Radar size={16} /> {mode === "daily" ? "Carregar panorama de hoje" : "Pesquisar agora"}</Button>
+        <Button className="w-full" onClick={() => research()} loading={loading} disabled={!data?.status.ai || (mode !== "daily" && mode !== "competitors" ? !niche : mode === "competitors" ? !(data?.competitors.length) : false)}><Radar size={16} /> {mode === "daily" ? "Carregar panorama de hoje" : "Pesquisar agora"}</Button>
       </Panel>
       <ResultPanel title={mode === "daily" ? "Tendências gerais do dia" : "Inteligência acionável"} empty={mode === "daily" ? "O panorama de hoje será carregado automaticamente." : "A pesquisa usa fontes públicas atuais e entrega oportunidades prontas para o calendário."} result={result} loading={loading} />
     </div>

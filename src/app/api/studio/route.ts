@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { aiGenerations, competitors, directAutomations, media } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
-import { AiConfigurationError, generateImage, generateText, type ReferenceImage } from "@/lib/openai";
+import { AiConfigurationError, aiConfigured, generateImage, generateText, imageModel, textModel, type ImageSize, type ReferenceImage } from "@/lib/gemini";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
@@ -88,10 +88,10 @@ export async function GET() {
   ]);
   return NextResponse.json({
     status: {
-      openai: Boolean(process.env.OPENAI_API_KEY),
+      ai: aiConfigured(),
       meta: metaConfigured(),
-      textModel: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-luna",
-      imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
+      textModel: textModel(),
+      imageModel: imageModel(),
     },
     automations: automationRows,
     competitors: competitorRows,
@@ -128,31 +128,34 @@ export async function POST(req: NextRequest) {
       await assertCreditAllowance(wid, "creative");
       const prompt = String(body.prompt ?? "").trim();
       if (!prompt) return NextResponse.json({ error: "Descreva o criativo." }, { status: 400 });
-      const size = (["1024x1024", "1024x1536", "1536x1024"].includes(body.size) ? body.size : "1024x1024") as "1024x1024" | "1024x1536" | "1536x1024";
+      const size = (["1024x1024", "1024x1536", "1536x1024"].includes(body.size) ? body.size : "1024x1024") as ImageSize;
       const references = await resolveReferenceImages(body.references, wid);
       const enriched = `Crie um criativo profissional para redes sociais. ${prompt}. Identidade visual: ${body.style || "contemporânea, sofisticada e limpa"}. ${references.length ? "Use as imagens anexadas como influência visual e comparativa, preservando apenas os elementos solicitados e sem copiar marcas." : ""} Evite marcas d'água e textos ilegíveis.`;
       const result = await generateImage(enriched, size, references);
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: enriched, resultText: "Criativo gerado", model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
 
-      // A IA já devolve JPEG em base64. Normaliza (resize/EXIF) quando possível
-      // e salva no Storage público + biblioteca, para o criativo já ficar
-      // publicável no Instagram (que não aceita data: URI).
+      // O Gemini devolve a imagem em base64 (normalmente PNG). Converte para
+      // JPEG (resize/EXIF) e salva no Storage público + biblioteca, para o
+      // criativo já ficar publicável no Instagram (que não aceita data: URI).
       let mediaUrl: string | undefined;
       let mediaId: string | undefined;
       try {
         const rawBuffer = Buffer.from(result.dataUrl.split(",")[1] ?? "", "base64");
-        let jpeg: Buffer = rawBuffer;
+        let buffer: Buffer = rawBuffer;
+        let contentType = result.mimeType;
         try {
-          jpeg = await toInstagramJpeg(rawBuffer);
+          buffer = await toInstagramJpeg(rawBuffer);
+          contentType = "image/jpeg";
         } catch {
-          // sharp indisponível: usa o JPEG cru da OpenAI (já é publicável).
+          // sharp indisponível: guarda o arquivo original do Gemini.
         }
+        const ext = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1] || "png";
         const saved = await saveMedia({
           workspaceId: wid,
-          buffer: jpeg,
-          contentType: "image/jpeg",
-          ext: "jpg",
-          name: `criativo-ia-${Date.now()}.jpg`,
+          buffer,
+          contentType,
+          ext,
+          name: `criativo-ia-${Date.now()}.${ext}`,
           type: "image",
         });
         mediaUrl = saved.url;

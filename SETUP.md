@@ -3,7 +3,7 @@
 Este guia leva o Postline de "código pronto" a "100% funcional". Você só precisa
 criar as contas externas, colar as chaves no `.env.local` e rodar as migrations.
 
-Ordem recomendada: **1) Supabase → 2) rodar app → 3) OpenAI → 4) Instagram → 5) Cron**.
+Ordem recomendada: **1) Supabase → 2) rodar app → 3) Gemini → 4) Instagram → 5) Cron**.
 
 ---
 
@@ -72,16 +72,41 @@ e-mail, é automaticamente vinculada ao workspace com o papel definido.
 
 ---
 
-## 3. OpenAI (roteiros e criativos)
+## 3. Google Gemini (roteiros, criativos e pesquisa)
 
-1. Gere uma chave em <https://platform.openai.com/api-keys>.
+1. Gere uma chave **gratuita** em <https://aistudio.google.com/apikey>
+   (basta uma conta Google; não precisa de cartão).
 2. `.env.local`:
    ```
-   OPENAI_API_KEY=sk-...
-   OPENAI_TEXT_MODEL=gpt-4o        # opcional
-   OPENAI_IMAGE_MODEL=gpt-image-1  # opcional
+   GEMINI_API_KEY=AIza...
+   GEMINI_TEXT_MODEL=gemini-3.5-flash        # opcional
+   GEMINI_IMAGE_MODEL=gemini-2.5-flash-image # opcional
    ```
-3. Pronto — a aba **IA & Automação** passa a gerar texto e imagens de verdade.
+3. Confira o que a sua chave alcança:
+   ```bash
+   pnpm gemini:check
+   ```
+4. Pronto — a aba **IA & Automação** passa a gerar texto e imagens de verdade.
+
+**Modelos usados**
+
+| Recurso | Modelo padrão | Fallback automático |
+| --- | --- | --- |
+| Roteiros, tendências, concorrentes | `gemini-3.5-flash` | `gemini-2.5-flash` → `gemini-2.5-flash-lite` |
+| Criativos (imagem) | `gemini-2.5-flash-image` | `gemini-3.1-flash-image` → `gemini-3.1-flash-lite-image` |
+
+Se um modelo responder 404/403/429 (indisponível para a chave ou cota do dia
+esgotada), o app tenta o próximo da lista sozinho — cada modelo tem cota
+independente no tier gratuito.
+
+**Sobre o tier gratuito**
+
+- Texto e pesquisa (grounding com Google Search) são gratuitos dentro da cota
+  diária; o radar de tendências já cita as fontes retornadas pelo Google.
+- **Geração de imagem tem a cota mais apertada** e, dependendo da conta, o
+  Google pode exigir faturamento ativo. Se os criativos falharem com aviso de
+  cota, ative o billing no AI Studio ou aguarde a renovação diária — o restante
+  do app continua funcionando normalmente.
 
 ---
 

@@ -11,13 +11,13 @@ Plataforma de gestão de redes sociais construída com Next.js, React, PostgreSQ
 - Gestão de clientes e biblioteca de mídia
 - Caixa de entrada unificada (mensagens do webhook da Meta)
 - Analytics e relatórios
-- Geração de roteiros e criativos com OpenAI
+- Geração de roteiros e criativos com Google Gemini (chave gratuita do AI Studio)
 - **PWA** instalável (manifest + service worker)
 - API com persistência PostgreSQL (Drizzle ORM)
 
 ## Configuração
 
-O passo a passo completo (Supabase, OpenAI, Instagram/Meta, Cron e deploy) está em
+O passo a passo completo (Supabase, Gemini, Instagram/Meta, Cron e deploy) está em
 **[SETUP.md](./SETUP.md)**.
 
 Resumo:
@@ -25,7 +25,7 @@ Resumo:
 1. `cp .env.example .env.local` e `pnpm install`.
 2. Preencha as chaves do Supabase (banco + auth) e rode `pnpm db:migrate`.
 3. `pnpm dev` e acesse <http://localhost:3000>.
-4. Adicione `OPENAI_API_KEY` e as credenciais da Meta conforme o SETUP.
+4. Adicione `GEMINI_API_KEY` e as credenciais da Meta conforme o SETUP.
 
 > Autenticação, banco e RLS são fornecidos pelo Supabase — o `DATABASE_URL` aponta
 > para o Postgres do próprio projeto Supabase.
