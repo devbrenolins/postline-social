@@ -9,12 +9,13 @@ import { Badge, Button, InlineError, Segmented, Switch, cn, inputCls, labelCls }
 import { toast } from "sonner";
 
 type Tab = "script" | "creative" | "direct" | "intelligence";
+type Provider = "Gemini" | "Criativos" | "Meta";
 type Automation = { id: string; name: string; triggerKeywords: string[]; responseTemplate: string; active: boolean; sentCount: number };
 type Competitor = { id: string; name: string; handle: string; platform: string; lastCheckedAt: string | null };
 type ReferenceImage = { name: string; type: string; dataUrl?: string; mediaId?: string; previewUrl?: string };
 type CreditBucket = { used: number; remaining: number; dailyCredits: number; dailyGenerations: number; generations: number; reserveTokens: number; tokensUsed: number; label: string };
 type StudioData = {
-  status: { ai: boolean; meta: boolean; textModel: string; imageModel: string };
+  status: { ai: boolean; image: boolean; meta: boolean; textModel: string; imageModel: string; imageProvider: string };
   automations: Automation[];
   competitors: Competitor[];
   dailyTrend: { text: string; updatedAt: string } | null;
@@ -47,6 +48,7 @@ export default function StudioPage() {
         </div>
         <div className="flex gap-2">
           <StatusPill ok={data?.status.ai} label="Gemini" />
+          <StatusPill ok={data?.status.image} label="Criativos" />
           <StatusPill ok={data?.status.meta} label="Instagram" />
         </div>
       </div>
@@ -63,7 +65,7 @@ export default function StudioPage() {
       </div>
 
       {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.ai)} reload={load} />}
-      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.ai)} reload={load} />}
+      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.image)} reload={load} />}
       {tab === "direct" && <DirectAutomation data={data} reload={load} />}
       {tab === "intelligence" && <Intelligence data={data} reload={load} />}
     </div>
@@ -89,8 +91,14 @@ function StatusPill({ ok, label }: { ok?: boolean; label: string }) {
   </div>;
 }
 
-function ConnectionWarning({ provider }: { provider: "Gemini" | "Meta" }) {
-  return <InlineError>{provider === "Gemini" ? "Adicione GEMINI_API_KEY nas variáveis da Vercel para usar este recurso." : "Conecte as credenciais da Meta e configure o webhook para enviar directs reais."}</InlineError>;
+const CONNECTION_HINTS: Record<Provider, string> = {
+  Gemini: "Adicione GEMINI_API_KEY nas variáveis da Vercel para usar este recurso.",
+  Criativos: "Adicione CLOUDFLARE_ACCOUNT_ID e CLOUDFLARE_API_TOKEN nas variáveis da Vercel — os modelos de imagem do Gemini não têm cota gratuita.",
+  Meta: "Conecte as credenciais da Meta e configure o webhook para enviar directs reais.",
+};
+
+function ConnectionWarning({ provider }: { provider: Provider }) {
+  return <InlineError>{CONNECTION_HINTS[provider]}</InlineError>;
 }
 
 function ScriptGenerator({ configured, reload }: { configured: boolean; reload: () => void }) {
@@ -127,7 +135,7 @@ function CreativeGenerator({ configured, reload }: { configured: boolean; reload
   async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); setSavedUrl(data.url ?? ""); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
-      {!configured && <ConnectionWarning provider="Gemini" />}
+      {!configured && <ConnectionWarning provider="Criativos" />}
       <Field label="O que você quer criar?"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ex.: foto publicitária de um sérum botânico sobre pedra rosada, folhas ao redor..." /></Field>
       <Field label="Estilo visual"><input className={inputCls} value={style} onChange={(e) => setStyle(e.target.value)} /></Field>
       <Field label="Formato"><select className={inputCls} value={size} onChange={(e) => setSize(e.target.value)}><option value="1024x1024">Feed quadrado — 1:1</option><option value="1024x1536">Story / vertical — 2:3</option><option value="1536x1024">Paisagem — 3:2</option></select></Field>

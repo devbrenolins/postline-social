@@ -1,17 +1,20 @@
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+import { AiConfigurationError, IMAGE_DIMENSIONS, type GeneratedImage, type ImageSize, type ReferenceImage } from "@/lib/ai-types";
 
-export class AiConfigurationError extends Error {}
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 /**
  * Modelos escolhidos para funcionar com uma chave GRATUITA do Google AI Studio.
  *
- * Texto: as variantes Flash são "free of charge" no tier gratuito e incluem
- * cota de grounding com Google Search (usado no radar de tendências).
- * Imagem: os modelos de imagem têm cota bem menor (e podem exigir billing na
- * conta). Por isso cada família tem uma lista de fallback: se o modelo
- * preferido responder 404/403/429, tentamos o próximo antes de falhar.
+ * Texto (verificado com `pnpm ai:check`): gemini-2.5-flash vem primeiro porque
+ * é o único confirmado com cota gratuita de grounding (Google Search) — os
+ * modelos 3.x geram texto, mas devolvem 429 na busca em chaves free.
+ * gemini-2.5-flash-lite saiu da lista: 404 para contas novas.
+ *
+ * Imagem: os modelos de imagem do Gemini têm cota ZERO no tier gratuito
+ * (`limit: 0`), então só funcionam com faturamento ativo. A lista abaixo fica
+ * como caminho opcional — o padrão de criativos é a Cloudflare (`cloudflare.ts`).
  */
-const TEXT_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+const TEXT_MODELS = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash"];
 const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3.1-flash-image", "gemini-3.1-flash-lite-image"];
 
 function candidates(preferred: string | undefined, fallbacks: string[]) {
@@ -128,8 +131,6 @@ function usageOf(data: GeminiResponse, fallbackInput = 0, fallbackOutput = 0): U
   return { inputTokens, outputTokens, totalTokens, credits: totalTokens / 100_000 };
 }
 
-export type ReferenceImage = { name: string; type: string; dataUrl: string };
-
 function inlineData(reference: ReferenceImage) {
   const match = reference.dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
   if (!match) throw new Error("Formato de imagem de referência inválido.");
@@ -158,11 +159,7 @@ export async function generateText(instructions: string, input: string, useWeb =
   return { text: `${text}${useWeb ? groundingSources(data) : ""}`, model, usage: usageOf(data, approximateInput, approximateOutput) };
 }
 
-/** O app trabalha com tamanhos em pixels; o Gemini recebe proporção. */
-const ASPECT_RATIOS = { "1024x1024": "1:1", "1024x1536": "2:3", "1536x1024": "3:2" } as const;
-export type ImageSize = keyof typeof ASPECT_RATIOS;
-
-export async function generateImage(prompt: string, size: ImageSize, references: ReferenceImage[] = []) {
+export async function generateGeminiImage(prompt: string, size: ImageSize, references: ReferenceImage[] = []): Promise<GeneratedImage> {
   const models = candidates(process.env.GEMINI_IMAGE_MODEL, IMAGE_MODELS);
   const contents = userContent(prompt, references);
   // TEXT+IMAGE é a combinação aceita por toda a família de modelos de imagem;
@@ -170,7 +167,7 @@ export async function generateImage(prompt: string, size: ImageSize, references:
   const responseModalities = ["TEXT", "IMAGE"];
 
   const { model, data } = await withModelFallback(models, async (model) => {
-    const body = { contents, generationConfig: { responseModalities, imageConfig: { aspectRatio: ASPECT_RATIOS[size] } } };
+    const body = { contents, generationConfig: { responseModalities, imageConfig: { aspectRatio: IMAGE_DIMENSIONS[size].aspectRatio } } };
     try {
       return { model, data: await geminiRequest(model, body) };
     } catch (error) {
@@ -182,7 +179,7 @@ export async function generateImage(prompt: string, size: ImageSize, references:
     }
   }).catch((error: unknown) => {
     if (isModelUnavailable(error)) {
-      throw new Error(`${error instanceof Error ? error.message : "Modelo indisponível."} Os modelos de imagem do Gemini têm cota gratuita reduzida — aguarde a renovação diária ou ative o faturamento no Google AI Studio.`);
+      throw new Error("Os modelos de imagem do Gemini não têm cota no tier gratuito (limit: 0). Configure CLOUDFLARE_ACCOUNT_ID e CLOUDFLARE_API_TOKEN para gerar criativos de graça, ou ative o faturamento no Google AI Studio.");
     }
     throw error;
   });

@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { aiGenerations, competitors, directAutomations, media } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
-import { AiConfigurationError, aiConfigured, generateImage, generateText, imageModel, textModel, type ImageSize, type ReferenceImage } from "@/lib/gemini";
+import { AiConfigurationError, aiConfigured, generateImage, generateText, imageConfigured, imageModel, imageProvider, textModel, type ImageSize, type ReferenceImage } from "@/lib/ai";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
@@ -89,9 +89,11 @@ export async function GET() {
   return NextResponse.json({
     status: {
       ai: aiConfigured(),
+      image: imageConfigured(),
       meta: metaConfigured(),
       textModel: textModel(),
       imageModel: imageModel(),
+      imageProvider: imageProvider(),
     },
     automations: automationRows,
     competitors: competitorRows,
@@ -134,8 +136,8 @@ export async function POST(req: NextRequest) {
       const result = await generateImage(enriched, size, references);
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: enriched, resultText: "Criativo gerado", model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
 
-      // O Gemini devolve a imagem em base64 (normalmente PNG). Converte para
-      // JPEG (resize/EXIF) e salva no Storage público + biblioteca, para o
+      // O provedor devolve a imagem em base64 (JPEG no FLUX, PNG no SDXL/Gemini).
+      // Converte para JPEG (resize/EXIF) e salva no Storage público + biblioteca, para o
       // criativo já ficar publicável no Instagram (que não aceita data: URI).
       let mediaUrl: string | undefined;
       let mediaId: string | undefined;
@@ -147,7 +149,7 @@ export async function POST(req: NextRequest) {
           buffer = await toInstagramJpeg(rawBuffer);
           contentType = "image/jpeg";
         } catch {
-          // sharp indisponível: guarda o arquivo original do Gemini.
+          // sharp indisponível: guarda o arquivo original do provedor.
         }
         const ext = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1] || "png";
         const saved = await saveMedia({

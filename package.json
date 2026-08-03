@@ -11,7 +11,7 @@
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "db:push": "drizzle-kit push --config drizzle.config.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "gemini:check": "tsx scripts/gemini-check.ts"
+    "ai:check": "tsx scripts/ai-check.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

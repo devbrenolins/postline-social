@@ -3,7 +3,7 @@
 Este guia leva o Postline de "código pronto" a "100% funcional". Você só precisa
 criar as contas externas, colar as chaves no `.env.local` e rodar as migrations.
 
-Ordem recomendada: **1) Supabase → 2) rodar app → 3) Gemini → 4) Instagram → 5) Cron**.
+Ordem recomendada: **1) Supabase → 2) rodar app → 3) Gemini → 3b) Cloudflare → 4) Instagram → 5) Cron**.
 
 ---
 
@@ -84,7 +84,7 @@ e-mail, é automaticamente vinculada ao workspace com o papel definido.
    ```
 3. Confira o que a sua chave alcança:
    ```bash
-   pnpm gemini:check
+   pnpm ai:check
    ```
 4. Pronto — a aba **IA & Automação** passa a gerar texto e imagens de verdade.
 
@@ -92,21 +92,46 @@ e-mail, é automaticamente vinculada ao workspace com o papel definido.
 
 | Recurso | Modelo padrão | Fallback automático |
 | --- | --- | --- |
-| Roteiros, tendências, concorrentes | `gemini-3.5-flash` | `gemini-2.5-flash` → `gemini-2.5-flash-lite` |
-| Criativos (imagem) | `gemini-2.5-flash-image` | `gemini-3.1-flash-image` → `gemini-3.1-flash-lite-image` |
+| Roteiros, tendências, concorrentes | `gemini-2.5-flash` | `gemini-3.5-flash` → `gemini-3.6-flash` |
 
-Se um modelo responder 404/403/429 (indisponível para a chave ou cota do dia
-esgotada), o app tenta o próximo da lista sozinho — cada modelo tem cota
-independente no tier gratuito.
+O `gemini-2.5-flash` vem primeiro porque é o único confirmado com cota gratuita
+de **grounding (Google Search)** — os modelos 3.x geram texto normalmente, mas
+devolvem 429 na busca em chaves free. Se um modelo responder 404/403/429, o app
+tenta o próximo sozinho (cada modelo tem cota independente).
 
-**Sobre o tier gratuito**
+> **Imagem não vem do Gemini.** Todos os modelos de imagem do Google têm
+> `limit: 0` no tier gratuito — não é cota esgotada, é ausência de cota. Por
+> isso os criativos usam a Cloudflare (passo 3b). Se você ativar faturamento no
+> Google depois, basta definir `IMAGE_PROVIDER=gemini`.
 
-- Texto e pesquisa (grounding com Google Search) são gratuitos dentro da cota
-  diária; o radar de tendências já cita as fontes retornadas pelo Google.
-- **Geração de imagem tem a cota mais apertada** e, dependendo da conta, o
-  Google pode exigir faturamento ativo. Se os criativos falharem com aviso de
-  cota, ative o billing no AI Studio ou aguarde a renovação diária — o restante
-  do app continua funcionando normalmente.
+---
+
+## 3b. Cloudflare Workers AI (criativos)
+
+Conta gratuita, **10.000 neurons/dia**, sem cartão.
+
+1. Crie uma conta em <https://dash.cloudflare.com>.
+2. **Account ID**: abra *Workers & Pages* — o ID aparece na barra lateral direita.
+3. **API Token**: *My Profile → API Tokens → Create Token* → use o template
+   **Workers AI** (permissão `Workers AI: Read`).
+4. `.env.local`:
+   ```
+   CLOUDFLARE_ACCOUNT_ID=...
+   CLOUDFLARE_API_TOKEN=...
+   ```
+5. `pnpm ai:check` para confirmar.
+
+**Modelos de imagem**
+
+| Situação | Modelo | Custo |
+| --- | --- | --- |
+| Formato quadrado, sem referências | `@cf/black-forest-labs/flux-1-schnell` | ~58 neurons (≈170 imagens/dia) |
+| Story/paisagem, ou com imagem de referência | `@cf/stabilityai/stable-diffusion-xl-lightning` | US$ 0,00 por step (não consome a cota) |
+| Fallback | `@cf/stabilityai/stable-diffusion-xl-base-1.0` | US$ 0,00 por step |
+
+O FLUX dá a melhor qualidade, mas só gera quadrado e não aceita imagem de
+referência — nesses casos o app troca para o SDXL sozinho. O limite do próprio
+Postline (8 criativos/dia por workspace) já é bem menor que a cota da Cloudflare.
 
 ---
 
