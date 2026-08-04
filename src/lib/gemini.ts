@@ -187,11 +187,26 @@ const CREATIVE_PLAN_SCHEMA = {
   required: ["imagePrompt", "palette", "layout", "copy"],
 } as const;
 
-const CREATIVE_PLAN_INSTRUCTIONS = `You are an art director for Brazilian social media creatives. From the brief, design ONE finished post.
+const PLAN_HEADER = `You are an art director for Brazilian social media creatives. From the brief, design ONE finished post.`;
 
-The photo and the text are produced separately: a diffusion model renders the photo, and the app draws the copy on top as real vector text. So the photo must NOT contain any text.
+/** O texto é desenhado em vetor por cima da foto (provedores sem tipografia confiável). */
+const PLAN_COMPOSITED = `The photo and the text are produced separately: a diffusion model renders the photo, and the app draws the copy on top as real vector text. So the photo must NOT contain any text.
 
 imagePrompt — one English prompt, max 900 characters, for the diffusion model. Photographic language (subject, materials, composition, lens, lighting, palette, background, mood). Honour every concrete element the brief asks for: product, scenery, colours, props, mood. Reserve deliberate empty negative space exactly where layout.zone places the copy, so the text has room to breathe. Any packaging or signage in frame must be described as plain and unbranded. Finish with: "clean unbranded packaging, no text, no letters, no logos, no watermark".
+`
+
+/** O próprio modelo de imagem desenha a tipografia (OpenAI). */
+const PLAN_IN_IMAGE = `The image model renders BOTH the photo and the typography in a single pass, so the copy must be described inside imagePrompt as text that appears in the artwork.
+
+imagePrompt — one English prompt, max 1400 characters, for the image model. Describe, in this order:
+1. The photograph: subject, materials, composition, lens, lighting, palette, background, mood. Honour every concrete element the brief asks for.
+2. The typography laid over it. Quote each line of copy verbatim, exactly as it appears in the copy field, inside double quotes, and keep the Brazilian Portuguese spelling and accents unchanged. State the position (matching layout.zone and layout.align), the relative size and weight of each line, and the colours from palette.
+3. The graphic treatment: the CTA drawn as a solid rounded pill in the accent colour with the cta text centred on it, and any veil or gradient behind the copy so it stays readable.
+Demand a clean sans-serif, correctly spelled, well kerned, generous margins, and no text other than the lines given. Any packaging or signage in the photo itself must be plain and unbranded.
+`
+
+const CREATIVE_PLAN_INSTRUCTIONS_TAIL = `
+
 
 copy — write it in Brazilian Portuguese, in the brief's tone. If the brief already dictates the wording, use it verbatim. headline: max 60 characters, the hook. subheadline: max 110 characters, may be empty. cta: max 22 characters, may be empty.
 
@@ -201,17 +216,28 @@ layout — zone, align and scrim chosen for THIS piece: composition, where the s
 
 Never invent or reproduce real brands.`;
 
+const CREATIVE_PLAN_INSTRUCTIONS = {
+  composited: [PLAN_HEADER, PLAN_COMPOSITED, CREATIVE_PLAN_INSTRUCTIONS_TAIL].join("\n\n"),
+  "in-image": [PLAN_HEADER, PLAN_IN_IMAGE, CREATIVE_PLAN_INSTRUCTIONS_TAIL].join("\n\n"),
+} as const;
+
+export type CreativePlanMode = keyof typeof CREATIVE_PLAN_INSTRUCTIONS;
+
 /**
  * Direção de arte completa para um criativo: prompt da foto, copy, paleta e
  * layout. Um único chamado ao Gemini decide tudo a partir do briefing, então o
  * resultado se adapta a cada pedido em vez de seguir um template fixo.
+ *
+ * `mode` muda quem desenha a tipografia: "in-image" pede ao modelo de imagem
+ * que escreva o texto na arte (OpenAI), "composited" reserva espaço vazio para
+ * o app desenhar por cima em vetor (Cloudflare).
  */
-export async function planCreative(brief: string, references: ReferenceImage[] = []) {
+export async function planCreative(brief: string, references: ReferenceImage[] = [], mode: CreativePlanMode = "composited") {
   const models = candidates(process.env.GEMINI_TEXT_MODEL, TEXT_MODELS);
   const { data } = await withModelFallback(models, async (model) => ({
     model,
     data: await geminiRequest(model, {
-      systemInstruction: { parts: [{ text: CREATIVE_PLAN_INSTRUCTIONS }] },
+      systemInstruction: { parts: [{ text: CREATIVE_PLAN_INSTRUCTIONS[mode] }] },
       contents: userContent(
         `${brief}${references.length ? "\n\nThe attached reference images define the visual direction (palette, lighting, framing, texture, mood). Absorb it without copying brands or protected identity." : ""}`,
         references

@@ -49,7 +49,7 @@ export default function StudioPage() {
         </div>
         <div className="flex gap-2">
           <StatusPill ok={data?.status.ai} label="Gemini" />
-          <StatusPill ok={data?.status.image} label="Criativos" />
+          <StatusPill ok={data?.status.image} label={data?.status.imageProvider === "openai" ? "Criativos · OpenAI" : data?.status.imageProvider === "cloudflare" ? "Criativos · Cloudflare" : "Criativos"} />
           <StatusPill ok={data?.status.meta} label="Instagram" />
         </div>
       </div>
@@ -66,7 +66,7 @@ export default function StudioPage() {
       </div>
 
       {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.ai)} reload={load} />}
-      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.image)} reload={load} />}
+      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.image)} provider={data?.status.imageProvider} reload={load} />}
       {tab === "direct" && <DirectAutomation data={data} reload={load} />}
       {tab === "intelligence" && <Intelligence data={data} reload={load} />}
     </div>
@@ -94,7 +94,7 @@ function StatusPill({ ok, label }: { ok?: boolean; label: string }) {
 
 const CONNECTION_HINTS: Record<Provider, string> = {
   Gemini: "Adicione GEMINI_API_KEY nas variáveis da Vercel para usar este recurso.",
-  Criativos: "Adicione CLOUDFLARE_ACCOUNT_ID e CLOUDFLARE_API_TOKEN nas variáveis da Vercel — os modelos de imagem do Gemini não têm cota gratuita.",
+  Criativos: "Adicione OPENAI_API_KEY (texto desenhado pelo próprio modelo, pago) ou CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (gratuito) nas variáveis da Vercel.",
   Meta: "Conecte as credenciais da Meta e configure o webhook para enviar directs reais.",
 };
 
@@ -129,7 +129,7 @@ function ScriptGenerator({ configured, reload }: { configured: boolean; reload: 
   </div>;
 }
 
-function CreativeGenerator({ configured, reload }: { configured: boolean; reload: () => void }) {
+function CreativeGenerator({ configured, provider, reload }: { configured: boolean; provider?: string; reload: () => void }) {
   const [prompt, setPrompt] = useState(""); const [style, setStyle] = useState("Editorial sofisticado, luz natural, cores da marca");
   const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [savedUrl, setSavedUrl] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
@@ -143,7 +143,12 @@ function CreativeGenerator({ configured, reload }: { configured: boolean; reload
       <Field label="Estilo visual"><input className={inputCls} value={style} onChange={(e) => setStyle(e.target.value)} /></Field>
       <div className="rounded-xl border border-border bg-surface-2/40 p-3">
         <div className="flex items-center justify-between gap-3">
-          <div><p className="text-[12.5px] font-semibold">Compor texto na peça</p><p className="text-[11px] text-muted">A IA escreve a copy e define o layout; o texto é desenhado por cima em vetor.</p></div>
+          <div>
+            <p className="text-[12.5px] font-semibold">Texto na peça</p>
+            <p className="text-[11px] text-muted">{provider === "openai"
+              ? "A IA escreve a copy e desenha a tipografia dentro da própria imagem."
+              : "A IA escreve a copy e define o layout; o texto é desenhado por cima em vetor."}</p>
+          </div>
           <Switch checked={withText} onChange={setWithText} />
         </div>
         {withText && <div className="mt-3 space-y-3">

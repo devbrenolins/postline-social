@@ -11,13 +11,13 @@ Plataforma de gestão de redes sociais construída com Next.js, React, PostgreSQ
 - Gestão de clientes e biblioteca de mídia
 - Caixa de entrada unificada (mensagens do webhook da Meta)
 - Analytics e relatórios
-- Geração de roteiros e pesquisa de tendências com **Google Gemini** e criativos com **Cloudflare Workers AI** (ambos em tier gratuito)
+- Roteiros e radar de tendências com **Google Gemini**; criativos prontos (foto + copy + CTA) com **OpenAI** ou **Cloudflare Workers AI**
 - **PWA** instalável (manifest + service worker)
 - API com persistência PostgreSQL (Drizzle ORM)
 
 ## Configuração
 
-O passo a passo completo (Supabase, Gemini, Cloudflare, Instagram/Meta, Cron e deploy) está em
+O passo a passo completo (Supabase, Gemini, provedor de criativos, Instagram/Meta, Cron e deploy) está em
 **[SETUP.md](./SETUP.md)**.
 
 Resumo:

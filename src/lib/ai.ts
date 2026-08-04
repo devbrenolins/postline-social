@@ -1,4 +1,5 @@
 import { cloudflareConfigured, cloudflareImageModel, generateCloudflareImage } from "@/lib/cloudflare";
+import { generateOpenAiImage, openaiConfigured, openaiImageModel } from "@/lib/openai";
 import { aiConfigured, buildImagePrompt, generateGeminiImage, imageModel as geminiImageModel, planCreative } from "@/lib/gemini";
 import { composeCreative } from "@/lib/creative";
 import type { CreativePlan, CreativePlanDraft, GeneratedImage, ImageSize, ReferenceImage } from "@/lib/ai-types";
@@ -11,28 +12,46 @@ export { aiConfigured, generateText, textModel } from "@/lib/gemini";
  * Ponto único de entrada da IA do app.
  *
  * Texto, pesquisa e análises: sempre Gemini (funciona na chave gratuita).
- * Imagem: Cloudflare Workers AI por padrão, porque os modelos de imagem do
- * Gemini têm cota zero no tier gratuito. Se a Cloudflare não estiver
- * configurada, cai para o Gemini — que só responde com faturamento ativo.
+ *
+ * Imagem, em ordem de preferência:
+ * - **OpenAI** — o único que escreve texto legível dentro da arte, então é o
+ *   provedor certo para criativo pronto. É pago, sem tier gratuito.
+ * - **Cloudflare** — gratuito, mas não desenha tipografia: a copy é composta
+ *   em vetor por cima da foto (`creative.ts`).
+ * - **Gemini** — só com faturamento ativo (cota zero de imagem no tier free).
  */
-export type ImageProvider = "cloudflare" | "gemini";
+export type ImageProvider = "openai" | "cloudflare" | "gemini";
+
+const PROVIDERS: ImageProvider[] = ["openai", "cloudflare", "gemini"];
 
 export function imageProvider(): ImageProvider {
-  const forced = process.env.IMAGE_PROVIDER?.trim().toLowerCase();
-  if (forced === "gemini" || forced === "cloudflare") return forced;
+  const forced = process.env.IMAGE_PROVIDER?.trim().toLowerCase() as ImageProvider | undefined;
+  if (forced && PROVIDERS.includes(forced)) return forced;
+  if (openaiConfigured()) return "openai";
   return cloudflareConfigured() ? "cloudflare" : "gemini";
 }
 
+/** Provedores que desenham a tipografia sozinhos, sem composição em código. */
+function rendersTextInImage(provider: ImageProvider) {
+  return provider === "openai";
+}
+
 export function imageConfigured() {
-  return imageProvider() === "cloudflare" ? cloudflareConfigured() : aiConfigured();
+  const provider = imageProvider();
+  if (provider === "openai") return openaiConfigured();
+  return provider === "cloudflare" ? cloudflareConfigured() : aiConfigured();
 }
 
 export function imageModel() {
-  return imageProvider() === "cloudflare" ? cloudflareImageModel() : geminiImageModel();
+  const provider = imageProvider();
+  if (provider === "openai") return openaiImageModel();
+  return provider === "cloudflare" ? cloudflareImageModel() : geminiImageModel();
 }
 
 export async function generateImage(prompt: string, size: ImageSize, references: ReferenceImage[] = []): Promise<GeneratedImage> {
-  if (imageProvider() === "gemini") return generateGeminiImage(prompt, size, references);
+  const provider = imageProvider();
+  if (provider === "openai") return generateOpenAiImage(await buildImagePrompt(prompt, references), size, references);
+  if (provider === "gemini") return generateGeminiImage(prompt, size, references);
 
   // O Gemini reescreve o briefing como prompt fotográfico em inglês e absorve
   // as imagens de referência — os modelos da Cloudflare não fazem img2img.
@@ -81,15 +100,23 @@ export type GeneratedCreative = GeneratedImage & { plan: CreativePlan | null };
  * mais entregar a imagem do que falhar a geração inteira.
  */
 export async function generateCreative(brief: string, size: ImageSize, references: ReferenceImage[] = [], withText = true): Promise<GeneratedCreative> {
-  if (!withText || imageProvider() === "gemini") {
+  const provider = imageProvider();
+  if (!withText || provider === "gemini") {
     return { ...(await generateImage(brief, size, references)), plan: null };
   }
 
+  const inImage = rendersTextInImage(provider);
   let plan: CreativePlan | null = null;
   try {
-    plan = normalizePlan(await planCreative(brief, references), brief);
+    plan = normalizePlan(await planCreative(brief, references, inImage ? "in-image" : "composited"), brief);
   } catch {
     // Sem cota ou JSON inválido: cai para a foto sem texto.
+  }
+
+  // Na OpenAI a tipografia sai do próprio modelo, com a copy citada no prompt.
+  if (inImage) {
+    const prompt = plan?.imagePrompt ?? (await buildImagePrompt(brief, references));
+    return { ...(await generateOpenAiImage(prompt, size, references)), plan };
   }
 
   const image = await generateCloudflareImage(plan?.imagePrompt ?? (await buildImagePrompt(brief, references)), size);

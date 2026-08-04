@@ -17,6 +17,7 @@ const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models";
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4/accounts";
 
 const geminiKey = process.env.GEMINI_API_KEY;
+const openaiKey = process.env.OPENAI_API_KEY;
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const cloudflareToken = process.env.CLOUDFLARE_API_TOKEN;
 
@@ -102,6 +103,22 @@ async function main() {
   }
   for (const [model, input] of CLOUDFLARE_IMAGE) {
     line("imagem", model, await probeCloudflare(model, input));
+  }
+
+  console.log("\n— OpenAI (criativos com texto na arte) —");
+  if (!openaiKey) {
+    console.log("✗ OPENAI_API_KEY não definida. Chave em https://platform.openai.com/api-keys (paga)");
+    return;
+  }
+  for (const model of ["gpt-image-2", "gpt-image-1.5", "gpt-image-1"]) {
+    const response = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, prompt: 'A white card on a pink background with the word "OK" in bold black sans-serif', size: "1024x1024", quality: "low", output_format: "jpeg", n: 1 }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) line("imagem", model, { ok: false, detail: `HTTP ${response.status} — ${String(data?.error?.message ?? "erro").slice(0, 110)}` });
+    else line("imagem", model, { ok: true, detail: `imagem base64 · ~${Math.round((String(data?.data?.[0]?.b64_json ?? "").length * 3) / 4 / 1024)} KB` });
   }
 }
 

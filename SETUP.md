@@ -106,7 +106,37 @@ tenta o próximo sozinho (cada modelo tem cota independente).
 
 ---
 
-## 3b. Cloudflare Workers AI (criativos)
+## 3b. Provedor de criativos
+
+Duas opções, e o app escolhe sozinho: se houver `OPENAI_API_KEY`, usa a OpenAI;
+senão, a Cloudflare. Dá para forçar com `IMAGE_PROVIDER=openai|cloudflare|gemini`.
+
+| | OpenAI | Cloudflare Workers AI |
+| --- | --- | --- |
+| Custo | **pago**, ~US$ 0,02 a 0,20 por imagem | gratuito, 10.000 neurons/dia |
+| Texto na arte | desenhado pelo próprio modelo | composto em vetor pelo app |
+| Imagens de referência | edição real (até 16) | viram descrição de texto |
+| Cartão | exigido | não |
+
+### Opção A — OpenAI (recomendada para criativo pronto)
+
+1. Chave em <https://platform.openai.com/api-keys>.
+2. `.env.local`:
+   ```
+   OPENAI_API_KEY=sk-...
+   OPENAI_IMAGE_MODEL=gpt-image-2   # opcional
+   OPENAI_IMAGE_QUALITY=high        # opcional: low | medium | high
+   ```
+3. `pnpm ai:check` para confirmar.
+
+Modelos, em ordem de tentativa: `gpt-image-2` → `gpt-image-1.5` → `gpt-image-1`.
+O `quality` é o que mais mexe no custo e na nitidez do texto — `high` é o padrão
+porque tipografia borrada estraga a peça.
+
+> Se a chave der 403, a organização provavelmente precisa de verificação de
+> identidade no painel da OpenAI para liberar os modelos de imagem.
+
+### Opção B — Cloudflare Workers AI (gratuita)
 
 Conta gratuita, **10.000 neurons/dia**, sem cartão.
 
@@ -121,7 +151,7 @@ Conta gratuita, **10.000 neurons/dia**, sem cartão.
    ```
 5. `pnpm ai:check` para confirmar.
 
-**Modelos de imagem** (verificados com chamadas reais — `pnpm ai:check`)
+**Modelos de imagem** (verificados com chamadas reais)
 
 | Ordem | Modelo | Observação |
 | --- | --- | --- |
@@ -130,35 +160,31 @@ Conta gratuita, **10.000 neurons/dia**, sem cartão.
 | 3º | `@cf/bytedance/stable-diffusion-xl-lightning` | Último recurso. US$ 0,00/step, qualidade bem inferior |
 | 4º | `@cf/stabilityai/stable-diffusion-xl-base-1.0` | Idem |
 
-O modelo preferido ganha duas tentativas antes de o fallback entrar — uma falha
-passageira da Cloudflare não deve rebaixar a qualidade do criativo. O limite do
+O modelo preferido ganha duas tentativas antes de o fallback entrar. O limite do
 próprio Postline (8 criativos/dia por workspace) já é bem menor que a cota.
 
-**Prompt:** o briefing em português passa pelo Gemini antes, que o reescreve
-como um prompt fotográfico em inglês (assunto, composição, lente, luz, paleta,
-clima) — é o idioma em que os modelos de difusão foram treinados, e a diferença
-de qualidade é grande. Se o Gemini estiver fora do ar ou sem cota, o briefing
-original segue direto.
+### Como o texto entra na peça
 
-**Texto na peça:** modelo de difusão não escreve texto confiável — em português
-erra letra na maioria das gerações. Então a IA gera só a FOTO, com espaço
-negativo reservado, e o app desenha a copy por cima em vetor (`src/lib/creative.ts`,
-fonte Inter empacotada em `fonts/`). Sai exatamente o texto pedido, na cor exata.
+Em ambos os casos o Gemini monta a direção de arte num JSON só — prompt da foto,
+copy em português, paleta e layout —, e o layout **varia a cada briefing**. O que
+muda é quem desenha a tipografia:
 
-O layout **não é template fixo**: a cada geração o Gemini devolve, num único
-JSON, o prompt da foto, a copy em português, a paleta e o layout (zona do texto,
-alinhamento e tipo de véu) escolhidos para aquele briefing. Se você preencher o
-campo de texto, ele é usado literalmente; se deixar vazio, a IA escreve. A cor
-da marca, quando informada, ancora a paleta. O switch **Compor texto na peça**
-desliga tudo isso e devolve só a foto.
+- **OpenAI**: a copy é citada literalmente dentro do prompt e o modelo desenha o
+  texto na arte, com controle de posição, peso e cor.
+- **Cloudflare**: o prompt reserva espaço negativo, a foto sai sem texto e o app
+  desenha a copy por cima em vetor (`src/lib/creative.ts`, fonte Inter em
+  `fonts/`). É o caminho para quando não se quer pagar por imagem — modelo de
+  difusão gratuito erra letra em português na maioria das gerações.
 
-**Imagens de referência:** nenhum modelo gratuito da Cloudflare faz img2img de
-verdade — o `image_b64` do SDXL responde `input tensor 'image' is not present`
-e o FLUX.2 aceita o campo `image` mas ignora o conteúdo (testado com uma
-referência de cores berrantes: nenhuma apareceu no resultado). Em vez disso, as
-referências vão para a **visão do Gemini**, que absorve a direção de arte
-(paleta, luz, enquadramento, clima) no prompt. Segue a influência sem copiar
-marcas, e sem perder resolução nem liberdade de formato.
+Se você preencher o campo de texto no Studio, ele é usado literalmente; vazio, a
+IA escreve. A cor da marca, quando informada, ancora a paleta. O switch **Texto
+na peça** desliga tudo isso e devolve só a foto.
+
+**Imagens de referência:** na OpenAI vão como edição real (`/images/edits`). Na
+Cloudflare nenhum modelo gratuito faz img2img — o `image_b64` do SDXL responde
+`input tensor 'image' is not present` e o FLUX.2 aceita o campo `image` mas
+ignora o conteúdo —, então elas passam pela visão do Gemini e viram direção de
+arte em texto.
 
 ---
 
