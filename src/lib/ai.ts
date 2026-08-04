@@ -1,5 +1,5 @@
 import { cloudflareConfigured, cloudflareImageModel, generateCloudflareImage } from "@/lib/cloudflare";
-import { aiConfigured, describeReferences, generateGeminiImage, imageModel as geminiImageModel } from "@/lib/gemini";
+import { aiConfigured, buildImagePrompt, generateGeminiImage, imageModel as geminiImageModel } from "@/lib/gemini";
 import type { GeneratedImage, ImageSize, ReferenceImage } from "@/lib/ai-types";
 
 export { AiConfigurationError } from "@/lib/ai-types";
@@ -33,8 +33,7 @@ export function imageModel() {
 export async function generateImage(prompt: string, size: ImageSize, references: ReferenceImage[] = []): Promise<GeneratedImage> {
   if (imageProvider() === "gemini") return generateGeminiImage(prompt, size, references);
 
-  // Os modelos gratuitos da Cloudflare não fazem img2img, então as referências
-  // passam pela visão do Gemini e entram no prompt como direção de arte.
-  const direction = references.length ? await describeReferences(references) : "";
-  return generateCloudflareImage(direction ? `${prompt} Direção visual das referências: ${direction}` : prompt, size);
+  // O Gemini reescreve o briefing como prompt fotográfico em inglês e absorve
+  // as imagens de referência — os modelos da Cloudflare não fazem img2img.
+  return generateCloudflareImage(await buildImagePrompt(prompt, references), size);
 }

@@ -68,6 +68,7 @@ async function geminiRequest(model: string, body: Record<string, unknown>): Prom
     headers: { "x-goog-api-key": apiKey(), "Content-Type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -159,24 +160,41 @@ export async function generateText(instructions: string, input: string, useWeb =
   return { text: `${text}${useWeb ? groundingSources(data) : ""}`, model, usage: usageOf(data, approximateInput, approximateOutput) };
 }
 
+const IMAGE_PROMPT_INSTRUCTIONS = `You are a prompt engineer for text-to-image diffusion models.
+Rewrite the Brazilian-Portuguese brief as ONE single English prompt, maximum 900 characters.
+Describe concretely: main subject and materials, composition and framing, camera and lens feel, lighting, color palette, background, texture and mood.
+Prefer photographic language ("editorial product photograph", "soft diffused daylight", "shallow depth of field", "85mm").
+Whenever the scene contains packaging, labels, screens or signage, describe them explicitly as plain, blank and unbranded — diffusion models obey a positive description far better than a negation, and invented label text is the most common defect.
+End the prompt with: "clean unbranded packaging, no text, no letters, no logos, no watermark".
+Never invent or reproduce real brands.
+Answer with the prompt only: no quotes, no markdown, no preamble.`;
+
 /**
- * Transforma as imagens de referência numa direção visual em texto.
+ * Converte o briefing do Studio no prompt que vai para o modelo de imagem.
  *
- * Os modelos de imagem gratuitos da Cloudflare não aceitam img2img (o campo
- * `image_b64` existe no schema, mas o tensor não está nos modelos publicados).
- * Como a visão do Gemini funciona na chave gratuita, lemos as referências aqui
- * e injetamos a descrição no prompt — o efeito prático é o mesmo que o Studio
- * promete: usar as imagens como influência, sem copiar marcas.
+ * Faz duas coisas de uma vez, com uma única chamada ao Gemini:
+ * 1. Traduz e enriquece o briefing em inglês com vocabulário fotográfico — é o
+ *    idioma em que os modelos de difusão foram treinados.
+ * 2. Lê as imagens de referência (a visão do Gemini funciona na chave gratuita)
+ *    e incorpora a direção visual delas. Isso substitui o img2img, que nenhum
+ *    modelo gratuito da Cloudflare suporta de verdade.
+ *
+ * Se o Gemini falhar (cota, bloqueio), devolve o briefing original: melhor um
+ * criativo mais fraco do que nenhum criativo.
  */
-export async function describeReferences(references: ReferenceImage[]) {
-  if (!references.length) return "";
-  const { text } = await generateText(
-    "Você é um diretor de arte. Resuma a direção visual das imagens em um único parágrafo de no máximo 500 caracteres: paleta, iluminação, enquadramento, textura, composição e clima. Escreva em português do Brasil, sem listas e sem citar marcas, logotipos ou identidade protegida.",
-    "Descreva a direção visual destas referências para orientar a criação de uma nova imagem.",
-    false,
-    references
-  );
-  return text.slice(0, 600);
+export async function buildImagePrompt(brief: string, references: ReferenceImage[] = []) {
+  try {
+    const { text } = await generateText(
+      IMAGE_PROMPT_INSTRUCTIONS,
+      `Brief: ${brief}${references.length ? "\n\nThe attached reference images define the visual direction (palette, lighting, framing, texture, mood). Absorb that direction into the prompt without copying brands, logos or protected identity." : ""}`,
+      false,
+      references
+    );
+    const cleaned = text.replace(/^```[a-z]*\n?|```$/gm, "").replace(/^["'`]|["'`]$/g, "").trim();
+    return cleaned.length > 40 ? cleaned.slice(0, 1200) : brief;
+  } catch {
+    return brief;
+  }
 }
 
 export async function generateGeminiImage(prompt: string, size: ImageSize, references: ReferenceImage[] = []): Promise<GeneratedImage> {

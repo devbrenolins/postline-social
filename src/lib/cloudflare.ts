@@ -6,22 +6,29 @@ const CLOUDFLARE_API_URL = "https://api.cloudflare.com/client/v4/accounts";
  * Geração de imagem no Workers AI da Cloudflare — a alternativa gratuita ao
  * Gemini, cujos modelos de imagem têm cota ZERO no tier free do Google.
  *
- * A conta gratuita dá 10.000 neurons/dia. Modelos verificados com `pnpm ai:check`:
- * - FLUX.1 [schnell]: melhor qualidade, ~58 neurons por imagem (≈170/dia), mas
- *   só gera quadrado — não aceita largura/altura.
- * - SDXL Lightning (ByteDance): cobrado a US$ 0,00 por step (não consome a
- *   cota) e aceita largura/altura livres. Usado nos formatos não quadrados.
+ * Modelos verificados com chamadas reais (`pnpm ai:check`), em ordem de uso:
+ * - FLUX.2 [klein] 4B: fotorrealismo de verdade, aceita largura/altura livres.
+ *   ~104 neurons no quadrado e ~156 no 2:3 — com 10.000 neurons/dia grátis dá
+ *   60 a 95 imagens, muito acima do limite de 8/dia do próprio Postline.
+ *   Só aceita `multipart/form-data`; JSON devolve "required properties ...
+ *   are 'multipart'".
+ * - FLUX.1 [schnell]: bom, porém só gera quadrado (não aceita largura/altura).
+ * - SDXL Lightning / Base: último recurso. Custam US$ 0,00 por step (não
+ *   consomem a cota), mas a qualidade é bem inferior.
  *
- * Nenhum deles faz img2img: o campo `image_b64` aparece no schema, mas os
- * modelos publicados respondem "input tensor `image` is not present". As
- * imagens de referência são tratadas antes, virando texto (ver `ai.ts`).
+ * Nenhum deles faz img2img: o `image_b64` do SDXL responde "input tensor
+ * `image` is not present" e o FLUX.2 aceita o campo `image` mas ignora o
+ * conteúdo. As referências viram texto antes de chegar aqui (ver `ai.ts`).
  */
-const FLUX = "@cf/black-forest-labs/flux-1-schnell";
+const FLUX2_KLEIN = "@cf/black-forest-labs/flux-2-klein-4b";
+const FLUX1_SCHNELL = "@cf/black-forest-labs/flux-1-schnell";
 const SDXL_LIGHTNING = "@cf/bytedance/stable-diffusion-xl-lightning";
 const SDXL_BASE = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
 
 /** Limite de prompt do FLUX; o SDXL não documenta limite, mas cortar é seguro. */
 const MAX_PROMPT = 2048;
+
+const ATTEMPT_TIMEOUT_MS = 28_000;
 
 /** O SDXL tende a inventar texto ilegível em embalagens e cartazes. */
 const NEGATIVE_PROMPT = "texto, letras, palavras, tipografia, legenda, marca d'água, logotipo, assinatura, moldura, baixa qualidade, borrado, deformado";
@@ -30,9 +37,8 @@ export function cloudflareConfigured() {
   return Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN);
 }
 
-/** Modelo usado no caso mais comum (formato quadrado). */
 export function cloudflareImageModel() {
-  return process.env.CLOUDFLARE_IMAGE_MODEL?.trim() || FLUX;
+  return process.env.CLOUDFLARE_IMAGE_MODEL?.trim() || FLUX2_KLEIN;
 }
 
 function credentials() {
@@ -43,18 +49,28 @@ function credentials() {
 }
 
 /**
- * Os modelos respondem de dois jeitos: o FLUX devolve JSON com a imagem em
- * base64 e o SDXL devolve os bytes crus do PNG. Normaliza os dois.
+ * Os modelos divergem no transporte (JSON x multipart) e na resposta (JSON com
+ * base64 x bytes crus). Normaliza tudo para base64 + tipo real.
  */
-async function runModel(model: string, input: Record<string, unknown>) {
+async function runModel(model: string, input: Record<string, string | number>, multipart: boolean) {
   const { accountId, token } = credentials();
-  const response = await fetch(`${CLOUDFLARE_API_URL}/${accountId}/ai/run/${model}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-    cache: "no-store",
-  });
 
+  let body: BodyInit;
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  if (multipart) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(input)) form.set(key, String(value));
+    body = form; // o boundary é definido pelo runtime
+  } else {
+    body = JSON.stringify(input);
+    headers["Content-Type"] = "application/json";
+  }
+
+  // Timeout por tentativa: cabe uma segunda dentro do maxDuration de 60s da
+  // rota, em vez de a requisição inteira morrer numa chamada pendurada.
+  const response = await fetch(`${CLOUDFLARE_API_URL}/${accountId}/ai/run/${model}`, {
+    method: "POST", headers, body, cache: "no-store", signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+  });
   const contentType = response.headers.get("content-type") ?? "";
 
   if (contentType.includes("application/json")) {
@@ -64,7 +80,7 @@ async function runModel(model: string, input: Record<string, unknown>) {
     }
     const base64 = data?.result?.image;
     if (typeof base64 !== "string" || !base64) throw new Error("A Cloudflare não retornou a imagem. Tente novamente.");
-    return { base64, mimeType: "image/jpeg" };
+    return { base64, mimeType: sniffImageType(Buffer.from(base64.slice(0, 32), "base64")) };
   }
 
   if (!response.ok) throw new Error(`Falha na Cloudflare (HTTP ${response.status}).`);
@@ -84,21 +100,31 @@ function sniffImageType(bytes: Buffer) {
   return "image/png";
 }
 
+type Attempt = { model: string; input: Record<string, string | number>; multipart: boolean };
+
+function attemptsFor(model: string, prompt: string, width: number, height: number): Attempt[] {
+  if (model === FLUX2_KLEIN) return [{ model, input: { prompt, width, height }, multipart: true }];
+  if (model === FLUX1_SCHNELL) {
+    // O schnell não aceita largura/altura: só entra na fila no formato quadrado.
+    return width === height ? [{ model, input: { prompt, steps: 8 }, multipart: false }] : [];
+  }
+  return [{ model, input: { prompt, width, height, num_steps: 20, negative_prompt: NEGATIVE_PROMPT }, multipart: false }];
+}
+
 export async function generateCloudflareImage(prompt: string, size: ImageSize): Promise<GeneratedImage> {
   const { width, height } = IMAGE_DIMENSIONS[size];
   const text = prompt.slice(0, MAX_PROMPT);
   const preferred = cloudflareImageModel();
-  const square = width === height;
-
-  const sdxl = (model: string) => ({ model, input: { prompt: text, width, height, num_steps: 20, negative_prompt: NEGATIVE_PROMPT } });
-  const attempts = square && preferred === FLUX
-    ? [{ model: FLUX, input: { prompt: text, steps: 8 } }, sdxl(SDXL_LIGHTNING), sdxl(SDXL_BASE)]
-    : [sdxl(preferred === FLUX ? SDXL_LIGHTNING : preferred), sdxl(SDXL_BASE)];
+  const chain = [...new Set([preferred, FLUX2_KLEIN, FLUX1_SCHNELL, SDXL_LIGHTNING, SDXL_BASE])];
+  const attempts = chain.flatMap((model) => attemptsFor(model, text, width, height));
+  // Falha transitória na Cloudflare não deve rebaixar a qualidade: o modelo
+  // preferido ganha uma segunda chance antes de o fallback entrar.
+  if (attempts.length) attempts.splice(1, 0, attempts[0]);
 
   let lastError: unknown;
   for (const attempt of attempts) {
     try {
-      const { base64, mimeType } = await runModel(attempt.model, attempt.input);
+      const { base64, mimeType } = await runModel(attempt.model, attempt.input, attempt.multipart);
       return {
         dataUrl: `data:${mimeType};base64,${base64}`,
         mimeType,

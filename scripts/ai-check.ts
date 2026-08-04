@@ -23,6 +23,7 @@ const cloudflareToken = process.env.CLOUDFLARE_API_TOKEN;
 const TEXT = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash"];
 const GEMINI_IMAGE = ["gemini-2.5-flash-image", "gemini-3.1-flash-image"];
 const CLOUDFLARE_IMAGE = [
+  ["@cf/black-forest-labs/flux-2-klein-4b", { prompt: "A simple pink circle on a white background.", width: 1024, height: 1536 }],
   ["@cf/black-forest-labs/flux-1-schnell", { prompt: "Um círculo rosa simples em fundo branco.", steps: 4 }],
   ["@cf/bytedance/stable-diffusion-xl-lightning", { prompt: "Um círculo rosa simples em fundo branco.", width: 1024, height: 1536, num_steps: 20 }],
   ["@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt: "Um círculo rosa simples em fundo branco.", width: 1024, height: 1536, num_steps: 20 }],
@@ -50,11 +51,19 @@ async function probeGemini(model: string, body: Record<string, unknown>): Promis
 }
 
 async function probeCloudflare(model: string, input: Record<string, unknown>): Promise<Result> {
-  const response = await fetch(`${CLOUDFLARE_API}/${accountId}/ai/run/${model}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${cloudflareToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
+  // O FLUX.2 só aceita multipart/form-data; os demais, JSON.
+  const multipart = model.includes("flux-2");
+  const headers: Record<string, string> = { Authorization: `Bearer ${cloudflareToken}` };
+  let body: BodyInit;
+  if (multipart) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(input)) form.set(key, String(value));
+    body = form;
+  } else {
+    body = JSON.stringify(input);
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(`${CLOUDFLARE_API}/${accountId}/ai/run/${model}`, { method: "POST", headers, body });
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const data = await response.json().catch(() => ({}));

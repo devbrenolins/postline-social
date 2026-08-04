@@ -7,6 +7,10 @@ import { AiConfigurationError, aiConfigured, generateImage, generateText, imageC
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
+// A geração de imagem leva de 10 a 60s; sem isto a Vercel corta a requisição
+// no limite padrão de 10s e o criativo nunca chega ao cliente.
+export const maxDuration = 60;
+
 function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro interno.";
   return NextResponse.json({ error: message }, { status: error instanceof AiConfigurationError ? 503 : 500 });

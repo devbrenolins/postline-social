@@ -121,25 +121,32 @@ Conta gratuita, **10.000 neurons/dia**, sem cartão.
    ```
 5. `pnpm ai:check` para confirmar.
 
-**Modelos de imagem** (verificados com `pnpm ai:check`)
+**Modelos de imagem** (verificados com chamadas reais — `pnpm ai:check`)
 
-| Situação | Modelo | Custo |
+| Ordem | Modelo | Observação |
 | --- | --- | --- |
-| Formato quadrado (1:1) | `@cf/black-forest-labs/flux-1-schnell` | ~58 neurons (≈170 imagens/dia) |
-| Story (2:3) e paisagem (3:2) | `@cf/bytedance/stable-diffusion-xl-lightning` | US$ 0,00 por step (não consome a cota) |
-| Fallback | `@cf/stabilityai/stable-diffusion-xl-base-1.0` | US$ 0,00 por step |
+| 1º | `@cf/black-forest-labs/flux-2-klein-4b` | FLUX.2 — fotorrealismo, qualquer proporção. ~104 neurons no 1:1 e ~156 no 2:3 → 60 a 95 imagens/dia |
+| 2º | `@cf/black-forest-labs/flux-1-schnell` | Bom, mas só gera quadrado |
+| 3º | `@cf/bytedance/stable-diffusion-xl-lightning` | Último recurso. US$ 0,00/step, qualidade bem inferior |
+| 4º | `@cf/stabilityai/stable-diffusion-xl-base-1.0` | Idem |
 
-O FLUX dá a melhor qualidade, mas só gera quadrado — nos outros formatos o app
-troca para o SDXL sozinho. O limite do próprio Postline (8 criativos/dia por
-workspace) já é bem menor que a cota da Cloudflare.
+O modelo preferido ganha duas tentativas antes de o fallback entrar — uma falha
+passageira da Cloudflare não deve rebaixar a qualidade do criativo. O limite do
+próprio Postline (8 criativos/dia por workspace) já é bem menor que a cota.
 
-**Imagens de referência:** nenhum modelo gratuito da Cloudflare faz img2img (o
-campo `image_b64` existe no schema, mas os modelos publicados respondem `input
-tensor 'image' is not present`). Em vez disso, o app manda as referências para a
-**visão do Gemini**, que devolve uma direção de arte em texto (paleta,
-iluminação, enquadramento, clima) e a injeta no prompt. O resultado segue a
-influência das referências sem copiar marcas — e sem perder resolução nem
-liberdade de formato.
+**Prompt:** o briefing em português passa pelo Gemini antes, que o reescreve
+como um prompt fotográfico em inglês (assunto, composição, lente, luz, paleta,
+clima) — é o idioma em que os modelos de difusão foram treinados, e a diferença
+de qualidade é grande. Se o Gemini estiver fora do ar ou sem cota, o briefing
+original segue direto.
+
+**Imagens de referência:** nenhum modelo gratuito da Cloudflare faz img2img de
+verdade — o `image_b64` do SDXL responde `input tensor 'image' is not present`
+e o FLUX.2 aceita o campo `image` mas ignora o conteúdo (testado com uma
+referência de cores berrantes: nenhuma apareceu no resultado). Em vez disso, as
+referências vão para a **visão do Gemini**, que absorve a direção de arte
+(paleta, luz, enquadramento, clima) no prompt. Segue a influência sem copiar
+marcas, e sem perder resolução nem liberdade de formato.
 
 ---
 
