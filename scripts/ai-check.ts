@@ -24,7 +24,7 @@ const TEXT = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash"];
 const GEMINI_IMAGE = ["gemini-2.5-flash-image", "gemini-3.1-flash-image"];
 const CLOUDFLARE_IMAGE = [
   ["@cf/black-forest-labs/flux-1-schnell", { prompt: "Um círculo rosa simples em fundo branco.", steps: 4 }],
-  ["@cf/stabilityai/stable-diffusion-xl-lightning", { prompt: "Um círculo rosa simples em fundo branco.", width: 1024, height: 1536, num_steps: 20 }],
+  ["@cf/bytedance/stable-diffusion-xl-lightning", { prompt: "Um círculo rosa simples em fundo branco.", width: 1024, height: 1536, num_steps: 20 }],
   ["@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt: "Um círculo rosa simples em fundo branco.", width: 1024, height: 1536, num_steps: 20 }],
 ] as const;
 

@@ -159,6 +159,26 @@ export async function generateText(instructions: string, input: string, useWeb =
   return { text: `${text}${useWeb ? groundingSources(data) : ""}`, model, usage: usageOf(data, approximateInput, approximateOutput) };
 }
 
+/**
+ * Transforma as imagens de referência numa direção visual em texto.
+ *
+ * Os modelos de imagem gratuitos da Cloudflare não aceitam img2img (o campo
+ * `image_b64` existe no schema, mas o tensor não está nos modelos publicados).
+ * Como a visão do Gemini funciona na chave gratuita, lemos as referências aqui
+ * e injetamos a descrição no prompt — o efeito prático é o mesmo que o Studio
+ * promete: usar as imagens como influência, sem copiar marcas.
+ */
+export async function describeReferences(references: ReferenceImage[]) {
+  if (!references.length) return "";
+  const { text } = await generateText(
+    "Você é um diretor de arte. Resuma a direção visual das imagens em um único parágrafo de no máximo 500 caracteres: paleta, iluminação, enquadramento, textura, composição e clima. Escreva em português do Brasil, sem listas e sem citar marcas, logotipos ou identidade protegida.",
+    "Descreva a direção visual destas referências para orientar a criação de uma nova imagem.",
+    false,
+    references
+  );
+  return text.slice(0, 600);
+}
+
 export async function generateGeminiImage(prompt: string, size: ImageSize, references: ReferenceImage[] = []): Promise<GeneratedImage> {
   const models = candidates(process.env.GEMINI_IMAGE_MODEL, IMAGE_MODELS);
   const contents = userContent(prompt, references);

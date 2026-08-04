@@ -121,17 +121,25 @@ Conta gratuita, **10.000 neurons/dia**, sem cartão.
    ```
 5. `pnpm ai:check` para confirmar.
 
-**Modelos de imagem**
+**Modelos de imagem** (verificados com `pnpm ai:check`)
 
 | Situação | Modelo | Custo |
 | --- | --- | --- |
-| Formato quadrado, sem referências | `@cf/black-forest-labs/flux-1-schnell` | ~58 neurons (≈170 imagens/dia) |
-| Story/paisagem, ou com imagem de referência | `@cf/stabilityai/stable-diffusion-xl-lightning` | US$ 0,00 por step (não consome a cota) |
+| Formato quadrado (1:1) | `@cf/black-forest-labs/flux-1-schnell` | ~58 neurons (≈170 imagens/dia) |
+| Story (2:3) e paisagem (3:2) | `@cf/bytedance/stable-diffusion-xl-lightning` | US$ 0,00 por step (não consome a cota) |
 | Fallback | `@cf/stabilityai/stable-diffusion-xl-base-1.0` | US$ 0,00 por step |
 
-O FLUX dá a melhor qualidade, mas só gera quadrado e não aceita imagem de
-referência — nesses casos o app troca para o SDXL sozinho. O limite do próprio
-Postline (8 criativos/dia por workspace) já é bem menor que a cota da Cloudflare.
+O FLUX dá a melhor qualidade, mas só gera quadrado — nos outros formatos o app
+troca para o SDXL sozinho. O limite do próprio Postline (8 criativos/dia por
+workspace) já é bem menor que a cota da Cloudflare.
+
+**Imagens de referência:** nenhum modelo gratuito da Cloudflare faz img2img (o
+campo `image_b64` existe no schema, mas os modelos publicados respondem `input
+tensor 'image' is not present`). Em vez disso, o app manda as referências para a
+**visão do Gemini**, que devolve uma direção de arte em texto (paleta,
+iluminação, enquadramento, clima) e a injeta no prompt. O resultado segue a
+influência das referências sem copiar marcas — e sem perder resolução nem
+liberdade de formato.
 
 ---
 
