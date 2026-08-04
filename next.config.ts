@@ -5,10 +5,11 @@ import type { NextConfig } from "next";
 // libvips-cpp.so.8.18.3" — build e deploy passam, só o runtime falha
 // (lovell/sharp#4567, mesma combinação de Next 16 + Vercel). O 0.34.5 também é
 // a versão que o próprio Next.js instala, então a árvore fica com uma cópia só.
-const SHARP_NATIVE = [
-  "./node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
-  "./node_modules/@img/sharp-libvips-linux-x64/lib/**",
-];
+// Os caminhos abaixo assumem `node_modules` achatado (`node-linker=hoisted` no
+// `.npmrc`). Não apontar para dentro de `node_modules/.pnpm/`: aquilo é
+// diretório symlinkado e a Vercel recusa o pacote da função com "invalid
+// deployment package ... files in symlinked directories".
+const SHARP_NATIVE = ["./node_modules/@img/sharp-libvips-linux-x64/lib/**"];
 
 // O sharp traz um libvips por arquitetura (~15 MB cada) e o rastreador leva
 // todos, o que já levou o bundle a 292 MB — acima do limite de 250 MB da
@@ -19,8 +20,6 @@ const FOREIGN_ARCHES = [
   "linuxmusl-arm64", "linuxmusl-x64",
 ];
 const SHARP_FOREIGN = FOREIGN_ARCHES.flatMap((arch) => [
-  `./node_modules/.pnpm/@img+sharp-${arch}@*/**`,
-  `./node_modules/.pnpm/@img+sharp-libvips-${arch}@*/**`,
   `./node_modules/@img/sharp-${arch}/**`,
   `./node_modules/@img/sharp-libvips-${arch}/**`,
 ]);

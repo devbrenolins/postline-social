@@ -1,3 +1,16 @@
+# node_modules achatado, como o npm faz.
+#
+# O layout padrão do pnpm (isolated) monta tudo em `.pnpm/` e liga por symlink.
+# A Vercel recusa isso numa Serverless Function — "The framework produced an
+# invalid deployment package for a Serverless Function. Typically this means
+# that the framework produces files in symlinked directories." Era também o
+# motivo de o `libvips-cpp.so` do sharp não chegar no bundle: o rastreador do
+# Next não atravessava os symlinks até ele.
+#
+# Fica aqui e não no `.npmrc` porque a partir do pnpm 10 é este arquivo que
+# vale para as configurações do workspace.
+nodeLinker: hoisted
+
 allowBuilds:
   esbuild: true
   sharp: true
