@@ -1,13 +1,18 @@
 import type { NextConfig } from "next";
 
+// ATENÇÃO ao mexer na versão do sharp: o `package.json` fixa **0.34.5** de
+// propósito. O 0.35.x quebra na Vercel com "ERR_DLOPEN_FAILED:
+// libvips-cpp.so.8.18.3" — build e deploy passam, só o runtime falha
+// (lovell/sharp#4567, mesma combinação de Next 16 + Vercel). O 0.34.5 também é
+// a versão que o próprio Next.js instala, então a árvore fica com uma cópia só.
 const SHARP_NATIVE = [
   "./node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
   "./node_modules/@img/sharp-libvips-linux-x64/lib/**",
 ];
 
 // O sharp traz um libvips por arquitetura (~15 MB cada) e o rastreador leva
-// todos: 292 MB de bundle, acima do limite de 250 MB da Vercel. A Vercel roda
-// linux-x64 com glibc, então o resto é peso morto.
+// todos, o que já levou o bundle a 292 MB — acima do limite de 250 MB da
+// Vercel. Ela roda linux-x64 com glibc, então o resto é peso morto.
 const FOREIGN_ARCHES = [
   "darwin-arm64", "darwin-x64", "win32-arm64", "win32-ia32", "win32-x64",
   "linux-arm", "linux-arm64", "linux-ppc64", "linux-riscv64", "linux-s390x",
@@ -29,10 +34,9 @@ const nextConfig: NextConfig = {
   // alcançados por `require`:
   //
   // 1. `libvips-cpp.so` — o binário .node do sharp carrega essa biblioteca pelo
-  //    linker do sistema (dlopen), não por import. O trace leva o `index.js` do
-  //    pacote e deixa o `.so` para trás, e a Vercel quebra em runtime com
-  //    "ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open shared object file".
-  //    Os dois caminhos cobrem o layout isolado do pnpm e o achatado (npm/hoisted).
+  //    linker do sistema (dlopen), não por import, então o trace leva o
+  //    `index.js` do pacote e deixa o `.so` para trás. Os dois caminhos cobrem
+  //    o layout isolado do pnpm e o achatado (npm/hoisted).
   // 2. `fonts/` — a Inter é lida por caminho via fontconfig ao compor o texto do
   //    criativo. O runtime da Vercel não traz fontes, então sem isto o texto
   //    sairia em branco.
