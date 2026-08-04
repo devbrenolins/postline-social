@@ -8,9 +8,12 @@ import { IMAGE_DIMENSIONS } from "@/lib/ai-types";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
-// A geração de imagem leva de 10 a 60s; sem isto a Vercel corta a requisição
-// no limite padrão de 10s e o criativo nunca chega ao cliente.
-export const maxDuration = 60;
+// Um criativo leva de 15s a ~2min: a direção de arte no Gemini, a imagem no
+// provedor e a gravação no Storage. 300s é o teto da Vercel em todos os planos
+// com Fluid compute (e também o default) — deixar em 60 fazia a função ser
+// morta no meio, e aí a Vercel responde com uma página de erro em texto puro
+// que o cliente não consegue parsear como JSON.
+export const maxDuration = 300;
 
 function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro interno.";

@@ -17,7 +17,10 @@ const OPENAI_API_URL = "https://api.openai.com/v1";
  */
 const MODELS = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1"];
 
-const ATTEMPT_TIMEOUT_MS = 120_000;
+// Cabe dentro do maxDuration de 300s da rota com folga para o planejamento no
+// Gemini e o upload. Um estouro aqui aborta a chamada e propaga um erro nosso,
+// em vez de deixar a Vercel matar a função.
+const ATTEMPT_TIMEOUT_MS = 150_000;
 
 export function openaiConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);

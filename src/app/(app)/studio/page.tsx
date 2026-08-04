@@ -23,9 +23,45 @@ type StudioData = {
   credits: { script: CreditBucket; creative: CreditBucket };
 };
 
+/**
+ * Lê a resposta da rota tolerando corpo que não é JSON.
+ *
+ * Quando a função serverless é encerrada (tempo estourado, falha de plataforma),
+ * a Vercel devolve uma página de erro em texto puro. Um `response.json()` direto
+ * quebrava com "Unexpected token 'A' ... is not valid JSON" e escondia o que
+ * realmente aconteceu.
+ */
+async function readJson(response: Response) {
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    const detail = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    throw new Error(
+      response.status === 504 || /timeout|timed out/i.test(detail)
+        ? "A geração passou do tempo limite do servidor. Tente novamente ou use uma qualidade menor."
+        : `O servidor respondeu ${response.status} sem JSON${detail ? `: ${detail}` : "."}`
+    );
+  }
+}
+
+/** Campos que as ações do Studio podem devolver. */
+type StudioResult = {
+  error?: string;
+  text?: string;
+  dataUrl?: string;
+  url?: string;
+  mediaId?: string;
+  model?: string;
+  cached?: boolean;
+  updatedAt?: string;
+  plan?: CreativePlan | null;
+  usage?: { credits?: number };
+};
+
 async function callStudio(body: Record<string, unknown>) {
   const response = await fetch("/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await response.json();
+  const data = (await readJson(response)) as StudioResult;
   if (!response.ok) throw new Error(data.error || "Não foi possível concluir a ação.");
   return data;
 }
@@ -34,8 +70,12 @@ export default function StudioPage() {
   const [tab, setTab] = useState<Tab>("script");
   const [data, setData] = useState<StudioData | null>(null);
   const load = useCallback(async () => {
-    const response = await fetch("/api/studio", { cache: "no-store" });
-    if (response.ok) setData(await response.json());
+    try {
+      const response = await fetch("/api/studio", { cache: "no-store" });
+      if (response.ok) setData((await readJson(response)) as unknown as StudioData);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível carregar o Studio.");
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -110,7 +150,7 @@ function ScriptGenerator({ configured, reload }: { configured: boolean; reload: 
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   async function generate() {
     setLoading(true); setError("");
-    try { const data = await callStudio({ action: "generateScript", ...form, references }); setResult(data.text); await reload(); toast.success(`Roteiro criado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); }
+    try { const data = await callStudio({ action: "generateScript", ...form, references }); setResult(data.text ?? ""); await reload(); toast.success(`Roteiro criado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); }
     catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar roteiro."); }
     finally { setLoading(false); }
   }
@@ -135,7 +175,7 @@ function CreativeGenerator({ configured, provider, reload }: { configured: boole
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   const [withText, setWithText] = useState(true); const [copy, setCopy] = useState(""); const [brandColor, setBrandColor] = useState("");
   const [plan, setPlan] = useState<CreativePlan | null>(null);
-  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references, withText, copy, brandColor }); setImage(data.dataUrl); setSavedUrl(data.url ?? ""); setPlan(data.plan ?? null); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
+  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references, withText, copy, brandColor }); setImage(data.dataUrl ?? ""); setSavedUrl(data.url ?? ""); setPlan(data.plan ?? null); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
       {!configured && <ConnectionWarning provider="Criativos" />}
@@ -256,7 +296,7 @@ function DirectAutomation({ data, reload }: { data: StudioData | null; reload: (
 function Intelligence({ data, reload }: { data: StudioData | null; reload: () => void }) {
   const [mode, setMode] = useState<"daily" | "trends" | "music" | "competitors">("daily"); const [niche, setNiche] = useState(""); const [platform, setPlatform] = useState("Instagram e TikTok"); const [result, setResult] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [dailyRequested, setDailyRequested] = useState(false);
   const [competitor, setCompetitor] = useState({ name: "", handle: "", platform: "instagram" });
-  async function research(target = mode) { setLoading(true); setError(""); try { const payload = target === "daily" ? { action: "dailyTrends" } : target === "competitors" ? { action: "analyzeCompetitors" } : { action: target, niche, platform }; const response = await callStudio(payload); setResult(response.text); if (target !== "daily" || !response.cached) toast.success(target === "daily" ? "Tendências do dia carregadas." : "Pesquisa atualizada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setLoading(false); } }
+  async function research(target = mode) { setLoading(true); setError(""); try { const payload = target === "daily" ? { action: "dailyTrends" } : target === "competitors" ? { action: "analyzeCompetitors" } : { action: target, niche, platform }; const response = await callStudio(payload); setResult(response.text ?? ""); if (target !== "daily" || !response.cached) toast.success(target === "daily" ? "Tendências do dia carregadas." : "Pesquisa atualizada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setLoading(false); } }
   async function addCompetitor() { try { await callStudio({ action: "createCompetitor", ...competitor }); setCompetitor({ name: "", handle: "", platform: "instagram" }); await reload(); } catch (e) { toast.error(e instanceof Error ? e.message : "Erro."); } }
   async function remove(id: string) { await callStudio({ action: "deleteCompetitor", id }); await reload(); }
   useEffect(() => {
