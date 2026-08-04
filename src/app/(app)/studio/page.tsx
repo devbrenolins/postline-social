@@ -13,6 +13,7 @@ type Provider = "Gemini" | "Criativos" | "Meta";
 type Automation = { id: string; name: string; triggerKeywords: string[]; responseTemplate: string; active: boolean; sentCount: number };
 type Competitor = { id: string; name: string; handle: string; platform: string; lastCheckedAt: string | null };
 type ReferenceImage = { name: string; type: string; dataUrl?: string; mediaId?: string; previewUrl?: string };
+type CreativePlan = { copy: { headline: string; subheadline: string; cta: string }; palette: { accent: string }; layout: { zone: string; align: string } };
 type CreditBucket = { used: number; remaining: number; dailyCredits: number; dailyGenerations: number; generations: number; reserveTokens: number; tokensUsed: number; label: string };
 type StudioData = {
   status: { ai: boolean; image: boolean; meta: boolean; textModel: string; imageModel: string; imageProvider: string };
@@ -132,12 +133,30 @@ function CreativeGenerator({ configured, reload }: { configured: boolean; reload
   const [prompt, setPrompt] = useState(""); const [style, setStyle] = useState("Editorial sofisticado, luz natural, cores da marca");
   const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [savedUrl, setSavedUrl] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
-  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references }); setImage(data.dataUrl); setSavedUrl(data.url ?? ""); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
+  const [withText, setWithText] = useState(true); const [copy, setCopy] = useState(""); const [brandColor, setBrandColor] = useState("");
+  const [plan, setPlan] = useState<CreativePlan | null>(null);
+  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references, withText, copy, brandColor }); setImage(data.dataUrl); setSavedUrl(data.url ?? ""); setPlan(data.plan ?? null); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
   return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
       {!configured && <ConnectionWarning provider="Criativos" />}
       <Field label="O que você quer criar?"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ex.: foto publicitária de um sérum botânico sobre pedra rosada, folhas ao redor..." /></Field>
       <Field label="Estilo visual"><input className={inputCls} value={style} onChange={(e) => setStyle(e.target.value)} /></Field>
+      <div className="rounded-xl border border-border bg-surface-2/40 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div><p className="text-[12.5px] font-semibold">Compor texto na peça</p><p className="text-[11px] text-muted">A IA escreve a copy e define o layout; o texto é desenhado por cima em vetor.</p></div>
+          <Switch checked={withText} onChange={setWithText} />
+        </div>
+        {withText && <div className="mt-3 space-y-3">
+          <Field label="Texto da peça (opcional — a IA escreve se ficar vazio)"><textarea className={cn(inputCls, "h-20 py-2.5 resize-none")} value={copy} onChange={(e) => setCopy(e.target.value)} placeholder="Ex.: 30% OFF no primeiro pedido · Só até domingo · Quero meu desconto" /></Field>
+          <Field label="Cor da marca (opcional)">
+            <div className="flex items-center gap-2">
+              <input type="color" className="h-9 w-12 cursor-pointer rounded-lg border border-border bg-surface-2 p-1" value={brandColor || "#e8558f"} onChange={(e) => setBrandColor(e.target.value)} />
+              <input className={inputCls} value={brandColor} onChange={(e) => setBrandColor(e.target.value)} placeholder="#e8558f — deixe vazio para a IA escolher" />
+              {brandColor && <button type="button" className="text-[11px] text-muted underline" onClick={() => setBrandColor("")}>limpar</button>}
+            </div>
+          </Field>
+        </div>}
+      </div>
       <Field label="Formato"><select className={inputCls} value={size} onChange={(e) => setSize(e.target.value)}><option value="1024x1024">Feed quadrado — 1:1</option><option value="1024x1536">Story / vertical — 2:3</option><option value="1536x1024">Paisagem — 3:2</option></select></Field>
       <ReferencePicker value={references} onChange={setReferences} allowLibrary />
       {error && <InlineError>{error}</InlineError>}
@@ -150,7 +169,13 @@ function CreativeGenerator({ configured, reload }: { configured: boolean; reload
           <img src={image} alt="Criativo gerado por IA" className="max-h-130 w-full object-contain" />
         </> : <div className="max-w-xs text-center text-muted"><ImageIcon className="mx-auto mb-3 opacity-40" size={36} /><p className="text-[13px]">Seu criativo aparecerá aqui.</p></div>}
       </div>
-      {image && <Button variant="outline" className="w-full" onClick={() => { const a = document.createElement("a"); a.href = savedUrl || image; a.download = `postline-criativo-${Date.now()}.${savedUrl ? "jpg" : "png"}`; a.click(); }}><Download size={15} /> Baixar {savedUrl ? "JPG" : "PNG"}</Button>}
+      {plan && <div className="rounded-xl border border-border bg-surface-2/40 p-3 text-[12px]">
+        <div className="mb-2 flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ background: plan.palette.accent }} /><span className="font-semibold">Copy da peça</span><Badge>{plan.layout.zone} · {plan.layout.align}</Badge></div>
+        <p className="font-semibold leading-snug">{plan.copy.headline}</p>
+        {plan.copy.subheadline && <p className="mt-1 text-muted">{plan.copy.subheadline}</p>}
+        {plan.copy.cta && <p className="mt-1.5 text-muted">CTA: {plan.copy.cta}</p>}
+      </div>}
+      {image && <Button variant="outline" className="w-full" onClick={() => { const a = document.createElement("a"); a.href = savedUrl || image; a.download = `postline-criativo-${Date.now()}.jpg`; a.click(); }}><Download size={15} /> Baixar JPG</Button>}
     </Panel>
   </div>;
 }

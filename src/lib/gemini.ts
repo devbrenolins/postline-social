@@ -160,6 +160,71 @@ export async function generateText(instructions: string, input: string, useWeb =
   return { text: `${text}${useWeb ? groundingSources(data) : ""}`, model, usage: usageOf(data, approximateInput, approximateOutput) };
 }
 
+const CREATIVE_PLAN_SCHEMA = {
+  type: "object",
+  properties: {
+    imagePrompt: { type: "string" },
+    palette: {
+      type: "object",
+      properties: { text: { type: "string" }, accent: { type: "string" }, accentText: { type: "string" }, scrim: { type: "string" } },
+      required: ["text", "accent", "accentText", "scrim"],
+    },
+    layout: {
+      type: "object",
+      properties: {
+        zone: { type: "string", enum: ["top", "bottom", "center", "left", "right"] },
+        align: { type: "string", enum: ["left", "center"] },
+        scrim: { type: "string", enum: ["none", "gradient", "solid"] },
+      },
+      required: ["zone", "align", "scrim"],
+    },
+    copy: {
+      type: "object",
+      properties: { headline: { type: "string" }, subheadline: { type: "string" }, cta: { type: "string" } },
+      required: ["headline", "subheadline", "cta"],
+    },
+  },
+  required: ["imagePrompt", "palette", "layout", "copy"],
+} as const;
+
+const CREATIVE_PLAN_INSTRUCTIONS = `You are an art director for Brazilian social media creatives. From the brief, design ONE finished post.
+
+The photo and the text are produced separately: a diffusion model renders the photo, and the app draws the copy on top as real vector text. So the photo must NOT contain any text.
+
+imagePrompt — one English prompt, max 900 characters, for the diffusion model. Photographic language (subject, materials, composition, lens, lighting, palette, background, mood). Honour every concrete element the brief asks for: product, scenery, colours, props, mood. Reserve deliberate empty negative space exactly where layout.zone places the copy, so the text has room to breathe. Any packaging or signage in frame must be described as plain and unbranded. Finish with: "clean unbranded packaging, no text, no letters, no logos, no watermark".
+
+copy — write it in Brazilian Portuguese, in the brief's tone. If the brief already dictates the wording, use it verbatim. headline: max 60 characters, the hook. subheadline: max 110 characters, may be empty. cta: max 22 characters, may be empty.
+
+palette — CSS hex colours that read well over the photo you just described, and that respect any brand colour the brief gives. text: the copy colour, high contrast against the scrim. accent: the CTA pill fill. accentText: the colour on top of the pill. scrim: the veil laid over the photo behind the copy.
+
+layout — zone, align and scrim chosen for THIS piece: composition, where the subject sits, how much copy there is. Vary it; do not default to the same arrangement every time. Use scrim "none" only when the photo already has a clean, flat area under the copy.
+
+Never invent or reproduce real brands.`;
+
+/**
+ * Direção de arte completa para um criativo: prompt da foto, copy, paleta e
+ * layout. Um único chamado ao Gemini decide tudo a partir do briefing, então o
+ * resultado se adapta a cada pedido em vez de seguir um template fixo.
+ */
+export async function planCreative(brief: string, references: ReferenceImage[] = []) {
+  const models = candidates(process.env.GEMINI_TEXT_MODEL, TEXT_MODELS);
+  const { data } = await withModelFallback(models, async (model) => ({
+    model,
+    data: await geminiRequest(model, {
+      systemInstruction: { parts: [{ text: CREATIVE_PLAN_INSTRUCTIONS }] },
+      contents: userContent(
+        `${brief}${references.length ? "\n\nThe attached reference images define the visual direction (palette, lighting, framing, texture, mood). Absorb it without copying brands or protected identity." : ""}`,
+        references
+      ),
+      generationConfig: { responseMimeType: "application/json", responseSchema: CREATIVE_PLAN_SCHEMA },
+    }),
+  }));
+  assertNotBlocked(data);
+  const raw = responseText(data);
+  if (!raw) throw new Error("A IA não retornou a direção de arte. Tente novamente.");
+  return JSON.parse(raw) as import("@/lib/ai-types").CreativePlanDraft;
+}
+
 const IMAGE_PROMPT_INSTRUCTIONS = `You are a prompt engineer for text-to-image diffusion models.
 Rewrite the Brazilian-Portuguese brief as ONE single English prompt, maximum 900 characters.
 Describe concretely: main subject and materials, composition and framing, camera and lens feel, lighting, color palette, background, texture and mood.

@@ -13,6 +13,20 @@ export const IMAGE_DIMENSIONS = {
 
 export type ImageSize = keyof typeof IMAGE_DIMENSIONS;
 
+export type CreativeZone = "top" | "bottom" | "center" | "left" | "right";
+export type CreativeScrim = "none" | "gradient" | "solid";
+
+/** Direção de arte de um criativo, decidida pela IA a cada geração. */
+export type CreativePlan = {
+  imagePrompt: string;
+  palette: { text: string; accent: string; accentText: string; scrim: string };
+  layout: { zone: CreativeZone; align: "left" | "center"; scrim: CreativeScrim };
+  copy: { headline: string; subheadline: string; cta: string };
+};
+
+/** O mesmo plano como chega do modelo: ainda não validado. */
+export type CreativePlanDraft = { [K in keyof CreativePlan]?: Partial<CreativePlan[K]> };
+
 export type GeneratedImage = {
   dataUrl: string;
   mimeType: string;

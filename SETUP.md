@@ -140,6 +140,18 @@ clima) — é o idioma em que os modelos de difusão foram treinados, e a difere
 de qualidade é grande. Se o Gemini estiver fora do ar ou sem cota, o briefing
 original segue direto.
 
+**Texto na peça:** modelo de difusão não escreve texto confiável — em português
+erra letra na maioria das gerações. Então a IA gera só a FOTO, com espaço
+negativo reservado, e o app desenha a copy por cima em vetor (`src/lib/creative.ts`,
+fonte Inter empacotada em `fonts/`). Sai exatamente o texto pedido, na cor exata.
+
+O layout **não é template fixo**: a cada geração o Gemini devolve, num único
+JSON, o prompt da foto, a copy em português, a paleta e o layout (zona do texto,
+alinhamento e tipo de véu) escolhidos para aquele briefing. Se você preencher o
+campo de texto, ele é usado literalmente; se deixar vazio, a IA escreve. A cor
+da marca, quando informada, ancora a paleta. O switch **Compor texto na peça**
+desliga tudo isso e devolve só a foto.
+
 **Imagens de referência:** nenhum modelo gratuito da Cloudflare faz img2img de
 verdade — o `image_b64` do SDXL responde `input tensor 'image' is not present`
 e o FLUX.2 aceita o campo `image` mas ignora o conteúdo (testado com uma

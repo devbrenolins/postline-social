@@ -3,7 +3,8 @@ import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { aiGenerations, competitors, directAutomations, media } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
-import { AiConfigurationError, aiConfigured, generateImage, generateText, imageConfigured, imageModel, imageProvider, textModel, type ImageSize, type ReferenceImage } from "@/lib/ai";
+import { AiConfigurationError, aiConfigured, generateCreative, generateText, imageConfigured, imageModel, imageProvider, textModel, type ImageSize, type ReferenceImage } from "@/lib/ai";
+import { IMAGE_DIMENSIONS } from "@/lib/ai-types";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
@@ -136,9 +137,23 @@ export async function POST(req: NextRequest) {
       if (!prompt) return NextResponse.json({ error: "Descreva o criativo." }, { status: 400 });
       const size = (["1024x1024", "1024x1536", "1536x1024"].includes(body.size) ? body.size : "1024x1024") as ImageSize;
       const references = await resolveReferenceImages(body.references, wid);
-      const enriched = `Crie um criativo profissional para redes sociais. ${prompt}. Identidade visual: ${body.style || "contemporânea, sofisticada e limpa"}. ${references.length ? "Use as imagens anexadas como influência visual e comparativa, preservando apenas os elementos solicitados e sem copiar marcas." : ""} Evite marcas d'água e textos ilegíveis.`;
-      const result = await generateImage(enriched, size, references);
-      await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: enriched, resultText: "Criativo gerado", model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
+      const copy = String(body.copy ?? "").trim();
+      const brandColor = /^#[0-9a-fA-F]{3,8}$/.test(String(body.brandColor ?? "")) ? String(body.brandColor) : "";
+      const withText = body.withText !== false;
+      const brief = [
+        `Briefing do criativo: ${prompt}`,
+        `Identidade visual: ${body.style || "contemporânea, sofisticada e limpa"}`,
+        `Formato: ${size} (${IMAGE_DIMENSIONS[size].aspectRatio})`,
+        copy ? `Use exatamente este texto na peça, sem reescrever: ${copy}` : "Escreva a copy a partir do briefing.",
+        brandColor ? `Cor principal da marca: ${brandColor} — a paleta deve girar em torno dela.` : "",
+        references.length ? "Use as imagens anexadas como influência visual, sem copiar marcas." : "",
+      ].filter(Boolean).join("\n");
+
+      const result = await generateCreative(brief, size, references, withText);
+      const resultText = result.plan
+        ? [result.plan.copy.headline, result.plan.copy.subheadline, result.plan.copy.cta].filter(Boolean).join(" · ")
+        : "Criativo gerado";
+      await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: brief, resultText, model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
 
       // O provedor devolve a imagem em base64 (JPEG no FLUX, PNG no SDXL/Gemini).
       // Converte para JPEG (resize/EXIF) e salva no Storage público + biblioteca, para o
