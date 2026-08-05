@@ -7,7 +7,7 @@ import { AiConfigurationError, aiConfigured, generateCreative, generateText, ima
 import { IMAGE_DIMENSIONS } from "@/lib/ai-types";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
-import { assertCreditAllowance, chargeOverflow, creditSummary, todayKey } from "@/lib/credits";
+import { assertCreditAllowance, chargeOverflow, creditSummary, CreditLimitError, todayKey } from "@/lib/credits";
 
 // Um criativo leva de 15s a ~2min: a direção de arte no Gemini, a imagem no
 // provedor e a gravação no Storage. 300s é o teto da Vercel em todos os planos
@@ -18,6 +18,13 @@ export const maxDuration = 300;
 
 function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro interno.";
+
+  // Limite atingido não é falha: é o momento de oferecer o upgrade. Vai como
+  // 402 para o cliente distinguir de erro real e mostrar o caminho da compra.
+  if (error instanceof CreditLimitError) {
+    return NextResponse.json({ error: message, limitReached: true, reason: error.reason, upgradeTo: error.upgradeTo }, { status: 402 });
+  }
+
   return NextResponse.json({ error: message }, { status: error instanceof AiConfigurationError ? 503 : 500 });
 }
 

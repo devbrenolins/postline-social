@@ -70,7 +70,9 @@ export const workspaces = pgTable(
     name: varchar("name", { length: 160 }).notNull(),
     slug: varchar("slug", { length: 160 }).notNull(),
     color: varchar("color", { length: 24 }).notNull().default("#AB2F5F"),
-    plan: varchar("plan", { length: 32 }).notNull().default("pro"),
+    plan: varchar("plan", { length: 32 }).notNull().default("trial"),
+    // Fim do teste gratuito. Nulo em planos pagos.
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
     ownerId: uuid("owner_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),

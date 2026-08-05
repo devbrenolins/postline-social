@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { aiGenerations, creditLedger, workspaces } from "@/db/schema";
-import { planOf, type CreditKind, type Plan } from "@/lib/plans";
+import { planOf, recommendedUpgrade, TRIAL_DAYS, type CreditKind, type Plan } from "@/lib/plans";
 
 /**
  * Saldo de créditos de um workspace.
@@ -56,13 +56,52 @@ async function purchasedBalances(workspaceId: string): Promise<Record<CreditKind
   return result;
 }
 
+export type TrialState = {
+  /** O workspace está num teste (expirado ou não). */
+  isTrial: boolean;
+  endsAt: string | null;
+  daysLeft: number;
+  expired: boolean;
+};
+
 export async function workspacePlan(workspaceId: string): Promise<Plan> {
   const [row] = await db.select({ plan: workspaces.plan }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   return planOf(row?.plan);
 }
 
+/**
+ * Situação do teste gratuito.
+ *
+ * Workspaces criados antes desta coluna existir têm `trialEndsAt` nulo — nesses
+ * casos o prazo é derivado da data de criação, para nunca ficar sem validade.
+ */
+export async function trialState(workspaceId: string): Promise<TrialState> {
+  const [row] = await db
+    .select({ plan: workspaces.plan, trialEndsAt: workspaces.trialEndsAt, createdAt: workspaces.createdAt })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+
+  if (!row || row.plan !== "trial") {
+    return { isTrial: false, endsAt: null, daysLeft: 0, expired: false };
+  }
+
+  const ends = row.trialEndsAt ?? new Date(row.createdAt.getTime() + TRIAL_DAYS * 86_400_000);
+  const msLeft = ends.getTime() - Date.now();
+  return {
+    isTrial: true,
+    endsAt: ends.toISOString(),
+    daysLeft: Math.max(0, Math.ceil(msLeft / 86_400_000)),
+    expired: msLeft <= 0,
+  };
+}
+
+/** Fração do saldo abaixo da qual a interface começa a avisar. */
+export const LOW_BALANCE_RATIO = 0.2;
+
 export async function creditSummary(workspaceId: string) {
   const plan = await workspacePlan(workspaceId);
+  const trial = await trialState(workspaceId);
   const start = new Date(`${todayKey()}T00:00:00-03:00`);
 
   const [rows, purchased] = await Promise.all([
@@ -93,24 +132,66 @@ export async function creditSummary(workspaceId: string) {
     };
   };
 
-  return { plan: { id: plan.id, name: plan.name }, script: bucket("script"), creative: bucket("creative") };
+  const script = bucket("script");
+  const creative = bucket("creative");
+  const upgrade = recommendedUpgrade(plan.id);
+
+  /** Já dá para a interface decidir o que mostrar sem repetir esta conta. */
+  const low = (b: CreditBucket) => b.dailyCredits > 0 && b.available <= b.dailyCredits * LOW_BALANCE_RATIO;
+
+  return {
+    plan: { id: plan.id, name: plan.name },
+    trial,
+    script,
+    creative,
+    lowBalance: trial.expired || low(script) || low(creative),
+    blocked: trial.expired || (script.available <= 0 && creative.available <= 0),
+    upgrade: upgrade ? { id: upgrade.id, name: upgrade.name, priceCents: upgrade.priceCents } : null,
+  };
 }
 
 /** Reserva mínima exigida antes de iniciar uma geração, em créditos. */
 const RESERVE: Record<CreditKind, number> = { script: 0.025, creative: 0.15 };
 
+/**
+ * Erro de limite atingido.
+ *
+ * Carrega o plano sugerido para a interface abrir a tela de assinatura já no
+ * lugar certo, em vez de só dizer "não pode".
+ */
+export class CreditLimitError extends Error {
+  constructor(message: string, readonly reason: "trial_expired" | "generations" | "balance", readonly upgradeTo: string | null) {
+    super(message);
+    this.name = "CreditLimitError";
+  }
+}
+
 export async function assertCreditAllowance(workspaceId: string, kind: CreditKind) {
   const summary = await creditSummary(workspaceId);
   const bucket = summary[kind];
+  const upgradeTo = summary.upgrade?.id ?? null;
 
-  if (bucket.generations >= bucket.dailyGenerations) {
-    throw new Error(
-      `Limite diário de ${bucket.dailyGenerations} ${bucket.label} atingido no plano ${summary.plan.name}. Faça upgrade ou aguarde a renovação à meia-noite.`
+  if (summary.trial.expired) {
+    throw new CreditLimitError(
+      `Seus ${TRIAL_DAYS} dias de teste terminaram. Assine para continuar criando com IA.`,
+      "trial_expired",
+      upgradeTo
     );
   }
+
+  if (bucket.generations >= bucket.dailyGenerations) {
+    throw new CreditLimitError(
+      `Você usou as ${bucket.dailyGenerations} gerações de ${bucket.label} de hoje no plano ${summary.plan.name}. Faça upgrade para continuar agora ou aguarde a renovação à meia-noite.`,
+      "generations",
+      upgradeTo
+    );
+  }
+
   if (bucket.available < RESERVE[kind]) {
-    throw new Error(
-      `Saldo insuficiente para gerar ${bucket.label}. Restam ${bucket.available.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} créditos — compre um pacote ou faça upgrade.`
+    throw new CreditLimitError(
+      `Seu saldo de ${bucket.label} acabou. Compre um pacote avulso ou faça upgrade para voltar a gerar agora.`,
+      "balance",
+      upgradeTo
     );
   }
 }

@@ -6,6 +6,12 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { cache } from "react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { TRIAL_DAYS } from "@/lib/plans";
+
+/** Fim do teste de um workspace recém-criado. */
+function trialDeadline() {
+  return new Date(Date.now() + TRIAL_DAYS * 86_400_000);
+}
 
 /**
  * Cookie que guarda o workspace ativo.
@@ -94,7 +100,7 @@ async function provisionProfile(authUser: SupabaseUser) {
     const slug = `${slugify(wsName) || "workspace"}-${profile.id.slice(0, 6)}`;
     const [ws] = await db
       .insert(workspaces)
-      .values({ name: wsName, slug, color: profile.avatarColor, ownerId: profile.id })
+      .values({ name: wsName, slug, color: profile.avatarColor, ownerId: profile.id, plan: "trial", trialEndsAt: trialDeadline() })
       .returning();
     await db.insert(workspaceMembers).values({
       workspaceId: ws.id,

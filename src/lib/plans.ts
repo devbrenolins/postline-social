@@ -6,7 +6,10 @@
  * Ao plugar um provedor de pagamento, só o passo de confirmação muda.
  */
 
-export type PlanId = "free" | "pro" | "business";
+export type PlanId = "trial" | "pro" | "business";
+
+/** Dias de teste completo concedidos a todo workspace novo. */
+export const TRIAL_DAYS = 7;
 export type CreditKind = "script" | "creative";
 
 export type PlanLimits = {
@@ -32,18 +35,20 @@ export type Plan = {
 export const UNLIMITED = -1;
 
 export const PLANS: Record<PlanId, Plan> = {
-  free: {
-    id: "free",
-    name: "Gratuito",
+  // Teste: mesmos limites do Pro, mas com prazo. Não existe plano gratuito
+  // permanente — quando o prazo acaba, é preciso assinar.
+  trial: {
+    id: "trial",
+    name: "Teste grátis",
     priceCents: 0,
-    tagline: "Para experimentar com uma marca só.",
-    highlights: ["1 cliente", "2 contas sociais", "Roteiros e criativos limitados"],
+    tagline: `${TRIAL_DAYS} dias com tudo do Pro liberado.`,
+    highlights: [`${TRIAL_DAYS} dias sem pagar`, "Todos os recursos do Pro", "Sem cartão para começar"],
     limits: {
-      dailyCredits: { script: 0.3, creative: 0.5 },
-      dailyGenerations: { script: 5, creative: 2 },
-      clients: 1,
-      members: 1,
-      socialAccounts: 2,
+      dailyCredits: { script: 1, creative: 2 },
+      dailyGenerations: { script: 20, creative: 8 },
+      clients: 10,
+      members: 5,
+      socialAccounts: 15,
     },
   },
   pro: {
@@ -76,15 +81,24 @@ export const PLANS: Record<PlanId, Plan> = {
   },
 };
 
-export const PLAN_ORDER: PlanId[] = ["free", "pro", "business"];
+export const PLAN_ORDER: PlanId[] = ["trial", "pro", "business"];
+
+/** Planos que o cliente pode assinar (o teste não é assinável). */
+export const PAID_PLANS: PlanId[] = ["pro", "business"];
 
 export function isPlanId(value: unknown): value is PlanId {
   return typeof value === "string" && value in PLANS;
 }
 
-/** Workspaces antigos podem ter um plano que não existe mais; caem no gratuito. */
+/** Workspaces com plano desconhecido (ex.: o antigo "free") caem no teste. */
 export function planOf(value: string | null | undefined): Plan {
-  return isPlanId(value) ? PLANS[value] : PLANS.free;
+  return isPlanId(value) ? PLANS[value] : PLANS.trial;
+}
+
+/** Plano sugerido quando alguém esbarra num limite. */
+export function recommendedUpgrade(current: PlanId): Plan | null {
+  if (current === "business") return null;
+  return current === "pro" ? PLANS.business : PLANS.pro;
 }
 
 export function isUnlimited(limit: number) {

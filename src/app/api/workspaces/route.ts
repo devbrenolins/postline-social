@@ -4,6 +4,11 @@ import { db } from "@/db";
 import { workspaces, workspaceMembers, activityLogs, users } from "@/db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { ACTIVE_WORKSPACE_SETTING, getSessionUser, WORKSPACE_COOKIE } from "@/lib/auth";
+import { TRIAL_DAYS } from "@/lib/plans";
+
+function trialDeadline() {
+  return new Date(Date.now() + TRIAL_DAYS * 86_400_000);
+}
 
 /**
  * Grava o workspace ativo nos dois lugares: em `users.settings` (fonte de
@@ -71,7 +76,7 @@ export async function POST(req: NextRequest) {
   const slug = `${slugify(name) || "workspace"}-${user.id.slice(0, 6)}-${Math.random().toString(36).slice(2, 6)}`;
   const [ws] = await db
     .insert(workspaces)
-    .values({ name, slug, color: user.avatarColor, ownerId: user.id })
+    .values({ name, slug, color: user.avatarColor, ownerId: user.id, plan: "trial", trialEndsAt: trialDeadline() })
     .returning();
   await db.insert(workspaceMembers).values({
     workspaceId: ws.id,

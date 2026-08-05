@@ -14,6 +14,7 @@ import {
 import { cn, Logo, Avatar, Dropdown, Button, timeAgo, useScrollLock } from "@/components/ui";
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
 import { ComposerProvider, useComposer, ComposerModal } from "@/components/composer";
+import { PlanBanner } from "@/components/plan-banner";
 import { toast } from "sonner";
 
 const NAV = [
@@ -68,6 +69,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
       <Sidebar open={drawer} onClose={() => setDrawer(false)} />
       <div className="flex min-h-dvh flex-col">
         <Topbar onMenu={() => setDrawer(true)} />
+        <PlanBanner />
         <main className="flex-1 px-4 pb-[calc(4rem_+_env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-350">{children}</div>
         </main>

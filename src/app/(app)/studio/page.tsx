@@ -22,13 +22,22 @@ type CreditBucket = {
   used: number; remainingDaily: number; purchased: number; available: number;
   generations: number; tokensUsed: number;
 };
+type TrialInfo = { isTrial: boolean; endsAt: string | null; daysLeft: number; expired: boolean };
 type StudioData = {
   status: { ai: boolean; image: boolean; meta: boolean; textModel: string; imageModel: string; imageProvider: string };
   automations: Automation[];
   automationTargets: AutomationTarget[];
   competitors: Competitor[];
   dailyTrend: { text: string; updatedAt: string } | null;
-  credits: { plan: { id: string; name: string }; script: CreditBucket; creative: CreditBucket };
+  credits: {
+    plan: { id: string; name: string };
+    trial: TrialInfo;
+    script: CreditBucket;
+    creative: CreditBucket;
+    lowBalance: boolean;
+    blocked: boolean;
+    upgrade: { id: string; name: string; priceCents: number } | null;
+  };
 };
 
 /**
@@ -67,11 +76,45 @@ type StudioResult = {
   usage?: { credits?: number };
 };
 
+/** Limite atingido: erro que a interface trata como oferta, não como falha. */
+class LimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LimitError";
+  }
+}
+
 async function callStudio(body: Record<string, unknown>) {
   const response = await fetch("/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = (await readJson(response)) as StudioResult;
+  if (response.status === 402) throw new LimitError(data.error || "Seu saldo acabou.");
   if (!response.ok) throw new Error(data.error || "Não foi possível concluir a ação.");
   return data;
+}
+
+/** Bloco de saldo esgotado, com o caminho da compra no lugar do erro seco. */
+function LimitReached({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-accent/30 bg-accent-soft/40 p-3.5">
+      <p className="flex items-start gap-2 text-[13px] font-semibold text-accent">
+        <Sparkles size={15} className="mt-0.5 shrink-0" /> {message}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link
+          href="/settings?tab=plano"
+          className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-accent-strong"
+        >
+          <Sparkles size={13} /> Ver planos
+        </Link>
+        <Link
+          href="/settings?tab=plano"
+          className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border bg-surface px-3.5 text-[12.5px] font-medium transition hover:bg-surface-2"
+        >
+          <Coins size={13} /> Comprar créditos avulsos
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 export default function StudioPage() {
@@ -143,9 +186,11 @@ function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
     </div>
     <div className="grid gap-3 sm:grid-cols-2">{items.map(({ name, bucket }) => {
       const percent = bucket.dailyCredits > 0 ? Math.min(100, Math.round((bucket.used / bucket.dailyCredits) * 100)) : 100;
-      return <div key={name} className="rounded-xl bg-surface-2/60 p-3">
+      const empty = bucket.available <= 0;
+      const low = !empty && bucket.dailyCredits > 0 && bucket.available <= bucket.dailyCredits * 0.2;
+      return <div key={name} className={cn("rounded-xl p-3", empty ? "bg-danger/8 ring-1 ring-danger/25" : low ? "bg-warning/10 ring-1 ring-warning/25" : "bg-surface-2/60")}>
         <div className="flex items-center justify-between gap-2"><p className="text-[12px] font-semibold">{name}</p><span className="text-[11px] text-muted">{bucket.generations}/{bucket.dailyGenerations} gerações</span></div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"><div className={cn("h-full rounded-full transition-all", empty ? "bg-danger" : low ? "bg-warning" : "bg-accent")} style={{ width: `${percent}%` }} /></div>
         <div className="mt-1.5 flex justify-between text-[10.5px] text-muted">
           <span>{fmtCredits(bucket.used)} usados hoje</span>
           <span>{fmtCredits(bucket.remainingDaily)} da franquia</span>
@@ -154,6 +199,11 @@ function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
           <p className="mt-1.5 border-t border-border pt-1.5 text-[10.5px] text-accent">
             + {fmtCredits(bucket.purchased)} créditos comprados (não expiram)
           </p>
+        )}
+        {(empty || low) && (
+          <Link href="/settings?tab=plano" className={cn("mt-2 flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition", empty ? "bg-danger/15 text-danger hover:bg-danger/25" : "bg-warning/15 text-warning hover:bg-warning/25")}>
+            <Sparkles size={12} /> {empty ? `Comprar créditos de ${name.toLowerCase()}` : "Saldo acabando — reabastecer"}
+          </Link>
         )}
       </div>;
     })}</div>
@@ -177,13 +227,13 @@ function ConnectionWarning({ provider, ready }: { provider: Provider; ready: boo
 function ScriptGenerator({ configured, ready, reload }: { configured: boolean; ready: boolean; reload: () => void }) {
   const [form, setForm] = useState({ topic: "", niche: "", platform: "Instagram Reels", duration: "45 segundos", tone: "Dinâmico e educativo" });
   const [result, setResult] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(""); const [limitHit, setLimitHit] = useState(false);
   const [loading, setLoading] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   async function generate() {
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setLimitHit(false);
     try { const data = await callStudio({ action: "generateScript", ...form, references }); setResult(data.text ?? ""); await reload(); toast.success(`Roteiro criado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); }
-    catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar roteiro."); }
+    catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar roteiro."); setLimitHit(e instanceof LimitError); }
     finally { setLoading(false); }
   }
   return <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
@@ -194,7 +244,7 @@ function ScriptGenerator({ configured, ready, reload }: { configured: boolean; r
       <div className="grid gap-3 sm:grid-cols-2"><Field label="Formato"><select className={inputCls} value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}><option>Instagram Reels</option><option>TikTok</option><option>YouTube Shorts</option><option>Carrossel</option></select></Field><Field label="Duração"><select className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })}><option>15 segundos</option><option>30 segundos</option><option>45 segundos</option><option>60 segundos</option></select></Field></div>
       <Field label="Tom"><input className={inputCls} value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })} /></Field>
       <ReferencePicker value={references} onChange={setReferences} />
-      {error && <InlineError>{error}</InlineError>}
+      {error && (limitHit ? <LimitReached message={error} /> : <InlineError>{error}</InlineError>)}
       <Button className="w-full" onClick={generate} disabled={!configured || !form.topic.trim()} loading={loading}><WandSparkles size={16} /> Gerar roteiro completo</Button>
     </Panel>
     <ResultPanel title="Roteiro pronto" empty="Preencha o briefing para gerar cenas, falas, texto na tela e CTA." result={result} loading={loading} />
@@ -203,11 +253,11 @@ function ScriptGenerator({ configured, ready, reload }: { configured: boolean; r
 
 function CreativeGenerator({ configured, ready, provider, reload }: { configured: boolean; ready: boolean; provider?: string; reload: () => void }) {
   const [prompt, setPrompt] = useState(""); const [style, setStyle] = useState("Editorial sofisticado, luz natural, cores da marca");
-  const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [savedUrl, setSavedUrl] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
+  const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [savedUrl, setSavedUrl] = useState(""); const [error, setError] = useState(""); const [limitHit, setLimitHit] = useState(false); const [loading, setLoading] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   const [withText, setWithText] = useState(true); const [copy, setCopy] = useState(""); const [brandColor, setBrandColor] = useState("");
   const [plan, setPlan] = useState<CreativePlan | null>(null);
-  async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references, withText, copy, brandColor }); setImage(data.dataUrl ?? ""); setSavedUrl(data.url ?? ""); setPlan(data.plan ?? null); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
+  async function generate() { setLoading(true); setError(""); setLimitHit(false); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references, withText, copy, brandColor }); setImage(data.dataUrl ?? ""); setSavedUrl(data.url ?? ""); setPlan(data.plan ?? null); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); setLimitHit(e instanceof LimitError); } finally { setLoading(false); } }
   return <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
       {!configured && <ConnectionWarning provider="Criativos" ready={ready} />}
@@ -236,7 +286,7 @@ function CreativeGenerator({ configured, ready, provider, reload }: { configured
       </div>
       <Field label="Formato"><select className={inputCls} value={size} onChange={(e) => setSize(e.target.value)}><option value="1024x1024">Feed quadrado — 1:1</option><option value="1024x1536">Story / vertical — 2:3</option><option value="1536x1024">Paisagem — 3:2</option></select></Field>
       <ReferencePicker value={references} onChange={setReferences} allowLibrary />
-      {error && <InlineError>{error}</InlineError>}
+      {error && (limitHit ? <LimitReached message={error} /> : <InlineError>{error}</InlineError>)}
       <Button className="w-full" onClick={generate} disabled={!configured || !prompt.trim()} loading={loading}><Sparkles size={16} /> Gerar criativo</Button>
     </Panel>
     <Panel title="Prévia" icon={<WandSparkles size={17} />}>
@@ -322,11 +372,11 @@ function postLabel(post: AutomationTarget) {
 
 function DirectAutomation({ data, ready, reload, initialPostId }: { data: StudioData | null; ready: boolean; reload: () => void; initialPostId?: string }) {
   const [form, setForm] = useState({ name: "", keywords: "", response: "", postId: initialPostId ?? "" });
-  const [saving, setSaving] = useState(false); const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false); const [error, setError] = useState(""); const [limitHit, setLimitHit] = useState(false);
   const targets = data?.automationTargets ?? [];
   // Quando a página é aberta pelo atalho do composer/calendário já vem a publicação escolhida.
   useEffect(() => { if (initialPostId) setForm((f) => ({ ...f, postId: initialPostId })); }, [initialPostId]);
-  async function create() { setSaving(true); setError(""); try { await callStudio({ action: "createAutomation", ...form, postId: form.postId || undefined }); setForm({ name: "", keywords: "", response: "", postId: "" }); await reload(); toast.success("Automação criada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setSaving(false); } }
+  async function create() { setSaving(true); setError(""); setLimitHit(false); try { await callStudio({ action: "createAutomation", ...form, postId: form.postId || undefined }); setForm({ name: "", keywords: "", response: "", postId: "" }); await reload(); toast.success("Automação criada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); setLimitHit(e instanceof LimitError); } finally { setSaving(false); } }
   async function mutate(body: Record<string, unknown>) { try { await callStudio(body); await reload(); } catch (e) { toast.error(e instanceof Error ? e.message : "Erro."); } }
   return <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
     <Panel title="Nova automação" icon={<Bot size={17} />}>
@@ -345,7 +395,7 @@ function DirectAutomation({ data, ready, reload, initialPostId }: { data: Studio
       </p>
       <Field label="Palavras-gatilho (separadas por vírgula)"><input className={inputCls} value={form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} placeholder="catálogo, preço, quero comprar" /></Field>
       <Field label="Resposta automática"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={form.response} onChange={(e) => setForm({ ...form, response: e.target.value })} placeholder="Olá! Que bom ter você aqui. Segue o nosso catálogo..." /></Field>
-      {error && <InlineError>{error}</InlineError>}
+      {error && (limitHit ? <LimitReached message={error} /> : <InlineError>{error}</InlineError>)}
       <Button className="w-full" onClick={create} loading={saving}><Plus size={16} /> Criar automação</Button>
       <p className="text-[11.5px] text-muted">As regras podem ser criadas antes da conexão. O envio só é ativado quando a Meta estiver conectada.</p>
     </Panel>
@@ -356,9 +406,9 @@ function DirectAutomation({ data, ready, reload, initialPostId }: { data: Studio
 }
 
 function Intelligence({ data, ready, reload }: { data: StudioData | null; ready: boolean; reload: () => void }) {
-  const [mode, setMode] = useState<"daily" | "trends" | "music" | "competitors">("daily"); const [niche, setNiche] = useState(""); const [platform, setPlatform] = useState("Instagram e TikTok"); const [result, setResult] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [dailyRequested, setDailyRequested] = useState(false);
+  const [mode, setMode] = useState<"daily" | "trends" | "music" | "competitors">("daily"); const [niche, setNiche] = useState(""); const [platform, setPlatform] = useState("Instagram e TikTok"); const [result, setResult] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [limitHit, setLimitHit] = useState(false); const [dailyRequested, setDailyRequested] = useState(false);
   const [competitor, setCompetitor] = useState({ name: "", handle: "", platform: "instagram" });
-  async function research(target = mode) { setLoading(true); setError(""); try { const payload = target === "daily" ? { action: "dailyTrends" } : target === "competitors" ? { action: "analyzeCompetitors" } : { action: target, niche, platform }; const response = await callStudio(payload); setResult(response.text ?? ""); if (target !== "daily" || !response.cached) toast.success(target === "daily" ? "Tendências do dia carregadas." : "Pesquisa atualizada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setLoading(false); } }
+  async function research(target = mode) { setLoading(true); setError(""); setLimitHit(false); try { const payload = target === "daily" ? { action: "dailyTrends" } : target === "competitors" ? { action: "analyzeCompetitors" } : { action: target, niche, platform }; const response = await callStudio(payload); setResult(response.text ?? ""); if (target !== "daily" || !response.cached) toast.success(target === "daily" ? "Tendências do dia carregadas." : "Pesquisa atualizada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); setLimitHit(e instanceof LimitError); } finally { setLoading(false); } }
   async function addCompetitor() { try { await callStudio({ action: "createCompetitor", ...competitor }); setCompetitor({ name: "", handle: "", platform: "instagram" }); await reload(); } catch (e) { toast.error(e instanceof Error ? e.message : "Erro."); } }
   async function remove(id: string) { await callStudio({ action: "deleteCompetitor", id }); await reload(); }
   useEffect(() => {
@@ -374,7 +424,7 @@ function Intelligence({ data, ready, reload }: { data: StudioData | null; ready:
       <Panel title={mode === "daily" ? "Panorama geral de hoje" : mode === "trends" ? "Radar por nicho" : mode === "music" ? "Radar de áudios" : "Monitoramento competitivo"} icon={mode === "daily" || mode === "trends" ? <TrendingUp size={17} /> : mode === "music" ? <Music2 size={17} /> : <Radar size={17} />}>
         {!data?.status.ai && <ConnectionWarning provider="Gemini" ready={ready} />}
         {mode === "daily" ? <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-4"><p className="text-[13px] font-semibold">Resumo geral, sem filtro de nicho</p><p className="mt-1 text-[11.5px] leading-5 text-muted">Atualizado automaticamente uma vez por dia e exibido assim que você abre o radar. A mesma análise é reutilizada durante o dia para controlar custos.</p>{data?.dailyTrend?.updatedAt && <p className="mt-2 text-[10.5px] text-muted">Última atualização: {new Date(data.dailyTrend.updatedAt).toLocaleString("pt-BR")}</p>}</div> : mode !== "competitors" ? <><Field label="Nicho"><input className={inputCls} value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Ex.: cafeterias especiais em Salvador" /></Field><Field label="Redes prioritárias"><input className={inputCls} value={platform} onChange={(e) => setPlatform(e.target.value)} /></Field></> : <><div className="grid gap-2 sm:grid-cols-[1fr_1fr_120px]"><input className={inputCls} value={competitor.name} onChange={(e) => setCompetitor({ ...competitor, name: e.target.value })} placeholder="Nome" /><input className={inputCls} value={competitor.handle} onChange={(e) => setCompetitor({ ...competitor, handle: e.target.value })} placeholder="@perfil" /><select className={inputCls} value={competitor.platform} onChange={(e) => setCompetitor({ ...competitor, platform: e.target.value })}><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option></select></div><Button variant="outline" className="w-full" onClick={addCompetitor} disabled={!competitor.name || !competitor.handle}><Plus size={15} /> Adicionar concorrente</Button><div className="space-y-2">{(data?.competitors ?? []).map((c) => <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border px-3 py-2"><Radar size={14} className="shrink-0 text-accent" /><span className="min-w-0 flex-1 break-words text-[12.5px]"><b>{c.name}</b> · @{c.handle}</span><button onClick={() => remove(c.id)} className="shrink-0 text-muted hover:text-danger" aria-label={`Remover ${c.name}`}><Trash2 size={14} /></button></div>)}</div></>}
-        {error && <InlineError>{error}</InlineError>}
+        {error && (limitHit ? <LimitReached message={error} /> : <InlineError>{error}</InlineError>)}
         <Button className="w-full" onClick={() => research()} loading={loading} disabled={!data?.status.ai || (mode !== "daily" && mode !== "competitors" ? !niche : mode === "competitors" ? !(data?.competitors.length) : false)}><Radar size={16} /> {mode === "daily" ? "Carregar panorama de hoje" : "Pesquisar agora"}</Button>
       </Panel>
       <ResultPanel title={mode === "daily" ? "Tendências gerais do dia" : "Inteligência acionável"} empty={mode === "daily" ? "O panorama de hoje será carregado automaticamente." : "A pesquisa usa fontes públicas atuais e entrega oportunidades prontas para o calendário."} result={result} loading={loading} />

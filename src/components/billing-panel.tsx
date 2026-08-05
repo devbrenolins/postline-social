@@ -10,11 +10,13 @@ type Pack = { id: string; name: string; kind: "script" | "creative"; credits: nu
 type Bucket = { label: string; dailyCredits: number; dailyGenerations: number; used: number; remainingDaily: number; purchased: number; available: number };
 type Purchase = { id: string; packId: string; kind: string; credits: string; amountCents: number; status: string; createdAt: string };
 
+type Trial = { isTrial: boolean; endsAt: string | null; daysLeft: number; expired: boolean };
+
 type Billing = {
   workspace: { name: string; plan: string };
   plans: Plan[];
   packs: Pack[];
-  credits: { plan: { id: string; name: string }; script: Bucket; creative: Bucket };
+  credits: { plan: { id: string; name: string }; trial: Trial; script: Bucket; creative: Bucket; lowBalance: boolean; blocked: boolean };
   purchases: Purchase[];
   isAdmin: boolean;
   simulated: boolean;
@@ -66,7 +68,10 @@ export function BillingPanel() {
     if (!started?.purchase) return;
     // Aqui entraria o checkout do provedor. Sem ele, a confirmação é imediata.
     const done = await call({ action: "confirmPurchase", purchaseId: started.purchase.id }, `buy-${pack.id}`);
-    if (done) toast.success(`${pack.credits} créditos adicionados ao saldo.`);
+    if (done) {
+      toast.success(`${pack.credits} créditos adicionados ao saldo.`);
+      window.dispatchEvent(new CustomEvent("postline:credits-changed"));
+    }
   }
 
   if (!data) {
@@ -119,18 +124,37 @@ export function BillingPanel() {
 
       {/* ------------------------------- Planos ------------------------------ */}
       <section>
-        <h3 className="mb-3 text-[13.5px] font-semibold">Planos</h3>
-        <div className="grid gap-3 lg:grid-cols-3">
-          {data.plans.map((plan) => {
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-[13.5px] font-semibold">
+            {data.credits.trial.expired ? "Escolha um plano para continuar" : "Planos"}
+          </h3>
+          {data.credits.trial.isTrial && !data.credits.trial.expired && (
+            <p className="text-[12px] text-muted">
+              Restam {data.credits.trial.daysLeft} {data.credits.trial.daysLeft === 1 ? "dia" : "dias"} de teste — assine
+              antes do fim e não perca o que já criou.
+            </p>
+          )}
+        </div>
+        {/* O teste não é assinável: só aparece se for o plano atual. */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          {data.plans
+            .filter((plan) => plan.id !== "trial" || plan.id === data.workspace.plan)
+            .map((plan) => {
             const current = plan.id === data.workspace.plan;
+            const recommended = plan.id === "pro" && !current;
             return (
               <div
                 key={plan.id}
                 className={cn(
-                  "flex flex-col rounded-2xl border p-4",
-                  current ? "border-accent bg-accent-soft/30" : "border-border bg-surface"
+                  "relative flex flex-col rounded-2xl border p-4",
+                  current ? "border-accent bg-accent-soft/30" : recommended ? "border-accent/60 bg-surface shadow-md" : "border-border bg-surface"
                 )}
               >
+                {recommended && (
+                  <span className="absolute -top-2.5 left-4 rounded-full bg-accent px-2 py-0.5 text-[10.5px] font-semibold text-white">
+                    Mais escolhido
+                  </span>
+                )}
                 <div className="flex items-center gap-2">
                   <p className="text-[14px] font-semibold">{plan.name}</p>
                   {current && <Badge tone="accent">Atual</Badge>}
@@ -163,15 +187,17 @@ export function BillingPanel() {
                   ) : (
                     <Button
                       className="w-full"
-                      variant={plan.priceCents === 0 ? "outline" : "primary"}
                       disabled={!data.isAdmin}
                       loading={busy === `plan-${plan.id}`}
                       onClick={async () => {
                         const done = await call({ action: "changePlan", plan: plan.id as PlanId }, `plan-${plan.id}`);
-                        if (done) toast.success(`Plano alterado para ${plan.name}.`);
+                        if (done) {
+                          toast.success(`Plano alterado para ${plan.name}.`);
+                          window.dispatchEvent(new CustomEvent("postline:credits-changed"));
+                        }
                       }}
                     >
-                      <Sparkles size={14} /> Mudar para {plan.name}
+                      <Sparkles size={14} /> Assinar {plan.name} · {formatBRL(plan.priceCents)}/mês
                     </Button>
                   )}
                 </div>
