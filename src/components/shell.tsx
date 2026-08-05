@@ -15,6 +15,7 @@ import { cn, Logo, Avatar, Dropdown, Button, timeAgo, useScrollLock } from "@/co
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
 import { ComposerProvider, useComposer, ComposerModal } from "@/components/composer";
 import { PlanBanner } from "@/components/plan-banner";
+import { UpgradeModal } from "@/components/upgrade-modal";
 import { toast } from "sonner";
 
 const NAV = [
@@ -53,6 +54,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <ComposerProvider>
         <ShellInner>{children}</ShellInner>
         <ComposerModal />
+        <UpgradeModal />
       </ComposerProvider>
     </WorkspaceProvider>
   );
