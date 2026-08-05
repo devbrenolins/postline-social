@@ -2,13 +2,23 @@ import { cookies } from "next/headers";
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "crypto";
 import { db } from "@/db";
 import { users, workspaces, workspaceMembers } from "@/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { cache } from "react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-/** Cookie que guarda o workspace ativo (para troca de workspace). */
+/**
+ * Cookie que guarda o workspace ativo.
+ *
+ * É só um atalho por dispositivo: a fonte de verdade é `users.settings.activeWorkspaceId`.
+ * Antes a preferência vivia SÓ aqui, então entrar de outro aparelho caía num
+ * workspace diferente — e, como cada workspace tem o próprio saldo, os créditos
+ * pareciam contados por dispositivo.
+ */
 export const WORKSPACE_COOKIE = "postline_ws";
+
+/** Chave dentro de `users.settings` onde a preferência acompanha a conta. */
+export const ACTIVE_WORKSPACE_SETTING = "activeWorkspaceId";
 
 const AVATAR_PALETTE = ["#AB2F5F", "#3E6C8E", "#3F7D5D", "#6B5B95", "#8A6D3B"];
 function randomColor() {
@@ -123,6 +133,9 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 
   const profile = await provisionProfile(authUser);
 
+  // `createdAt` fixa a ordem: sem ORDER BY o Postgres pode devolver as linhas em
+  // ordem diferente entre requisições, e o fallback abaixo cairia num workspace
+  // distinto a cada acesso.
   const memberships = await db
     .select({ workspaceId: workspaceMembers.workspaceId })
     .from(workspaceMembers)
@@ -132,14 +145,20 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
         eq(workspaceMembers.status, "active"),
         isNull(workspaceMembers.deletedAt)
       )
-    );
+    )
+    .orderBy(asc(workspaceMembers.createdAt), asc(workspaceMembers.id));
+
+  const belongs = (id: string | undefined | null) => Boolean(id && memberships.some((m) => m.workspaceId === id));
+
+  // Preferência da conta primeiro, cookie do dispositivo só como atalho.
+  const settings = (profile.settings as Record<string, unknown>) ?? {};
+  const saved = typeof settings[ACTIVE_WORKSPACE_SETTING] === "string" ? (settings[ACTIVE_WORKSPACE_SETTING] as string) : null;
+  const store = await cookies();
+  const cookieValue = store.get(WORKSPACE_COOKIE)?.value ?? null;
 
   let workspaceId = memberships[0]?.workspaceId ?? "";
-  const store = await cookies();
-  const preferred = store.get(WORKSPACE_COOKIE)?.value;
-  if (preferred && memberships.some((m) => m.workspaceId === preferred)) {
-    workspaceId = preferred;
-  }
+  if (belongs(cookieValue)) workspaceId = cookieValue!;
+  if (belongs(saved)) workspaceId = saved!;
 
   return {
     id: profile.id,

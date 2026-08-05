@@ -1,9 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/db";
-import { workspaces, workspaceMembers, activityLogs } from "@/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
-import { getSessionUser, WORKSPACE_COOKIE } from "@/lib/auth";
+import { workspaces, workspaceMembers, activityLogs, users } from "@/db/schema";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { ACTIVE_WORKSPACE_SETTING, getSessionUser, WORKSPACE_COOKIE } from "@/lib/auth";
+
+/**
+ * Grava o workspace ativo nos dois lugares: em `users.settings` (fonte de
+ * verdade, acompanha a conta em qualquer aparelho) e no cookie, que continua
+ * servindo de atalho para evitar uma leitura a mais.
+ */
+async function setActiveWorkspace(userId: string, workspaceId: string) {
+  await db
+    .update(users)
+    .set({
+      settings: sql`coalesce(${users.settings}, '{}'::jsonb) || ${JSON.stringify({ [ACTIVE_WORKSPACE_SETTING]: workspaceId })}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+
+  const store = await cookies();
+  store.set(WORKSPACE_COOKIE, workspaceId, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
+}
 
 function slugify(input: string) {
   return input
@@ -72,8 +90,7 @@ export async function POST(req: NextRequest) {
     entityId: ws.id,
   });
 
-  const store = await cookies();
-  store.set(WORKSPACE_COOKIE, ws.id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
+  await setActiveWorkspace(user.id, ws.id);
 
   return NextResponse.json({ ok: true, workspace: { id: ws.id, name: ws.name, color: ws.color, plan: ws.plan } });
 }
@@ -100,7 +117,6 @@ export async function PATCH(req: NextRequest) {
     .limit(1);
   if (!membership[0]) return NextResponse.json({ error: "Você não pertence a este workspace." }, { status: 403 });
 
-  const store = await cookies();
-  store.set(WORKSPACE_COOKIE, workspaceId, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
+  await setActiveWorkspace(user.id, workspaceId);
   return NextResponse.json({ ok: true });
 }
