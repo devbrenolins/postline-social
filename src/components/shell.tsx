@@ -430,7 +430,16 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
 
   useEffect(() => setActive(0), [q]);
 
+  // Esc precisa fechar mesmo quando o foco não está no input (após clicar na lista).
+  useEffect(() => {
+    if (!open) return;
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onClose(); } };
+    window.addEventListener("keydown", fn);
+    return () => window.removeEventListener("keydown", fn);
+  }, [open, onClose]);
+
   function onKey(e: React.KeyboardEvent) {
+    if (e.key === "Escape") { e.preventDefault(); onClose(); }
     if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(a + 1, items.length - 1)); }
     if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
     if (e.key === "Enter" && items[active]) { e.preventDefault(); items[active].run(); onClose(); }

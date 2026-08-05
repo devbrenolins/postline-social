@@ -36,6 +36,13 @@
       "when": 1784691183749,
       "tag": "0004_broad_bloodstorm",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785902249148,
+      "tag": "0005_broken_pyro",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Bot, Check, CheckCircle2, Coins, Download, FolderOpen, ImageIcon, Loader2, MessageCircle, Music2,
+  Bot, Check, Coins, Download, FolderOpen, ImageIcon, Loader2, MessageCircle, Music2,
   Paperclip, Plus, Radar, Sparkles, Trash2, TrendingUp, Video, WandSparkles, X,
 } from "lucide-react";
 import { Badge, Button, InlineError, Segmented, Switch, cn, inputCls, labelCls, useScrollLock } from "@/components/ui";
@@ -10,7 +10,8 @@ import { toast } from "sonner";
 
 type Tab = "script" | "creative" | "direct" | "intelligence";
 type Provider = "Gemini" | "Criativos" | "Meta";
-type Automation = { id: string; name: string; triggerKeywords: string[]; responseTemplate: string; active: boolean; sentCount: number };
+type Automation = { id: string; name: string; postId: string | null; triggerKeywords: string[]; responseTemplate: string; active: boolean; sentCount: number };
+type AutomationTarget = { id: string; caption: string; status: string; mediaUrls: string[]; scheduledAt: string | null; publishedAt: string | null };
 type Competitor = { id: string; name: string; handle: string; platform: string; lastCheckedAt: string | null };
 type ReferenceImage = { name: string; type: string; dataUrl?: string; mediaId?: string; previewUrl?: string };
 type CreativePlan = { copy: { headline: string; subheadline: string; cta: string }; palette: { accent: string }; layout: { zone: string; align: string } };
@@ -18,6 +19,7 @@ type CreditBucket = { used: number; remaining: number; dailyCredits: number; dai
 type StudioData = {
   status: { ai: boolean; image: boolean; meta: boolean; textModel: string; imageModel: string; imageProvider: string };
   automations: Automation[];
+  automationTargets: AutomationTarget[];
   competitors: Competitor[];
   dailyTrend: { text: string; updatedAt: string } | null;
   credits: { script: CreditBucket; creative: CreditBucket };
@@ -69,12 +71,26 @@ async function callStudio(body: Record<string, unknown>) {
 export default function StudioPage() {
   const [tab, setTab] = useState<Tab>("script");
   const [data, setData] = useState<StudioData | null>(null);
+  // Enquanto o status não chega, `data` é null e todo recurso parece desconectado.
+  // Sem esta flag a tela pisca "configuração pendente" antes de se corrigir sozinha.
+  const [loaded, setLoaded] = useState(false);
+  // Atalho vindo do composer / calendário: /studio?tab=direct&post=<id>.
+  // Lido de window.location para não exigir um limite de Suspense no build.
+  const [initialPostId, setInitialPostId] = useState<string>();
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const post = params.get("post");
+    if (post || params.get("tab") === "direct") setTab("direct");
+    if (post) setInitialPostId(post);
+  }, []);
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/studio", { cache: "no-store" });
       if (response.ok) setData((await readJson(response)) as unknown as StudioData);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível carregar o Studio.");
+    } finally {
+      setLoaded(true);
     }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -86,11 +102,6 @@ export default function StudioPage() {
           <div className="mb-2 flex items-center gap-2"><Badge tone="accent"><Sparkles size={12} /> IA & Automação</Badge></div>
           <h2 className="text-2xl font-semibold tracking-tight">Central de crescimento</h2>
           <p className="mt-1 text-[13.5px] text-muted">Crie conteúdo, automatize conversas e encontre oportunidades em tempo real.</p>
-        </div>
-        <div className="flex gap-2">
-          <StatusPill ok={data?.status.ai} label="Gemini" />
-          <StatusPill ok={data?.status.image} label={data?.status.imageProvider === "openai" ? "Criativos · OpenAI" : data?.status.imageProvider === "cloudflare" ? "Criativos · Cloudflare" : "Criativos"} />
-          <StatusPill ok={data?.status.meta} label="Instagram" />
         </div>
       </div>
 
@@ -105,10 +116,10 @@ export default function StudioPage() {
         ]} />
       </div>
 
-      {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.ai)} reload={load} />}
-      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.image)} provider={data?.status.imageProvider} reload={load} />}
-      {tab === "direct" && <DirectAutomation data={data} reload={load} />}
-      {tab === "intelligence" && <Intelligence data={data} reload={load} />}
+      {tab === "script" && <ScriptGenerator configured={Boolean(data?.status.ai)} ready={loaded} reload={load} />}
+      {tab === "creative" && <CreativeGenerator configured={Boolean(data?.status.image)} ready={loaded} provider={data?.status.imageProvider} reload={load} />}
+      {tab === "direct" && <DirectAutomation data={data} ready={loaded} reload={load} initialPostId={initialPostId} />}
+      {tab === "intelligence" && <Intelligence data={data} ready={loaded} reload={load} />}
     </div>
   );
 }
@@ -126,23 +137,21 @@ function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
   </section>;
 }
 
-function StatusPill({ ok, label }: { ok?: boolean; label: string }) {
-  return <div className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-medium", ok ? "border-success/25 bg-success/8 text-success" : "border-warning/25 bg-warning/8 text-warning")}>
-    {ok ? <CheckCircle2 size={13} /> : <span className="h-2 w-2 rounded-full bg-current" />}{label}: {ok ? "conectado" : "configuração pendente"}
-  </div>;
-}
-
+// Mensagens voltadas ao usuário final: nada de nome de variável de ambiente nem
+// de provedor — quem opera a conta não tem como agir sobre isso.
 const CONNECTION_HINTS: Record<Provider, string> = {
-  Gemini: "Adicione GEMINI_API_KEY nas variáveis da Vercel para usar este recurso.",
-  Criativos: "Adicione OPENAI_API_KEY (texto desenhado pelo próprio modelo, pago) ou CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (gratuito) nas variáveis da Vercel.",
-  Meta: "Conecte as credenciais da Meta e configure o webhook para enviar directs reais.",
+  Gemini: "A geração por IA está indisponível no momento. Nossa equipe já foi avisada.",
+  Criativos: "A geração de imagens está indisponível no momento. Nossa equipe já foi avisada.",
+  Meta: "Conecte sua conta do Instagram em Configurações para enviar os directs automaticamente.",
 };
 
-function ConnectionWarning({ provider }: { provider: Provider }) {
+/** Só aparece depois que o status chegou do servidor — antes disso tudo parece desconectado. */
+function ConnectionWarning({ provider, ready }: { provider: Provider; ready: boolean }) {
+  if (!ready) return null;
   return <InlineError>{CONNECTION_HINTS[provider]}</InlineError>;
 }
 
-function ScriptGenerator({ configured, reload }: { configured: boolean; reload: () => void }) {
+function ScriptGenerator({ configured, ready, reload }: { configured: boolean; ready: boolean; reload: () => void }) {
   const [form, setForm] = useState({ topic: "", niche: "", platform: "Instagram Reels", duration: "45 segundos", tone: "Dinâmico e educativo" });
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
@@ -154,9 +163,9 @@ function ScriptGenerator({ configured, reload }: { configured: boolean; reload: 
     catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar roteiro."); }
     finally { setLoading(false); }
   }
-  return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+  return <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
     <Panel title="Briefing do roteiro" icon={<Video size={17} />}>
-      {!configured && <ConnectionWarning provider="Gemini" />}
+      {!configured && <ConnectionWarning provider="Gemini" ready={ready} />}
       <Field label="Tema ou objetivo"><textarea className={cn(inputCls, "h-24 py-3 resize-none")} value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} placeholder="Ex.: 3 erros que impedem sua pele de absorver o sérum" /></Field>
       <Field label="Nicho"><input className={inputCls} value={form.niche} onChange={(e) => setForm({ ...form, niche: e.target.value })} placeholder="Ex.: skincare premium" /></Field>
       <div className="grid gap-3 sm:grid-cols-2"><Field label="Formato"><select className={inputCls} value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}><option>Instagram Reels</option><option>TikTok</option><option>YouTube Shorts</option><option>Carrossel</option></select></Field><Field label="Duração"><select className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })}><option>15 segundos</option><option>30 segundos</option><option>45 segundos</option><option>60 segundos</option></select></Field></div>
@@ -169,16 +178,16 @@ function ScriptGenerator({ configured, reload }: { configured: boolean; reload: 
   </div>;
 }
 
-function CreativeGenerator({ configured, provider, reload }: { configured: boolean; provider?: string; reload: () => void }) {
+function CreativeGenerator({ configured, ready, provider, reload }: { configured: boolean; ready: boolean; provider?: string; reload: () => void }) {
   const [prompt, setPrompt] = useState(""); const [style, setStyle] = useState("Editorial sofisticado, luz natural, cores da marca");
   const [size, setSize] = useState("1024x1024"); const [image, setImage] = useState(""); const [savedUrl, setSavedUrl] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   const [withText, setWithText] = useState(true); const [copy, setCopy] = useState(""); const [brandColor, setBrandColor] = useState("");
   const [plan, setPlan] = useState<CreativePlan | null>(null);
   async function generate() { setLoading(true); setError(""); try { const data = await callStudio({ action: "generateCreative", prompt, style, size, references, withText, copy, brandColor }); setImage(data.dataUrl ?? ""); setSavedUrl(data.url ?? ""); setPlan(data.plan ?? null); await reload(); toast.success(data.url ? `Criativo gerado e salvo na biblioteca (JPEG) · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.` : `Criativo gerado · ${Number(data.usage?.credits ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} crédito.`); } catch (e) { setError(e instanceof Error ? e.message : "Erro ao gerar criativo."); } finally { setLoading(false); } }
-  return <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+  return <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
     <Panel title="Direção criativa" icon={<ImageIcon size={17} />}>
-      {!configured && <ConnectionWarning provider="Criativos" />}
+      {!configured && <ConnectionWarning provider="Criativos" ready={ready} />}
       <Field label="O que você quer criar?"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ex.: foto publicitária de um sérum botânico sobre pedra rosada, folhas ao redor..." /></Field>
       <Field label="Estilo visual"><input className={inputCls} value={style} onChange={(e) => setStyle(e.target.value)} /></Field>
       <div className="rounded-xl border border-border bg-surface-2/40 p-3">
@@ -279,14 +288,38 @@ function LibraryReferencePicker({ selected, onSelect, onClose }: { selected: Ref
   </div>;
 }
 
-function DirectAutomation({ data, reload }: { data: StudioData | null; reload: () => void }) {
-  const [form, setForm] = useState({ name: "", keywords: "", response: "" }); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  async function create() { setSaving(true); setError(""); try { await callStudio({ action: "createAutomation", ...form }); setForm({ name: "", keywords: "", response: "" }); await reload(); toast.success("Automação criada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setSaving(false); } }
+/** Rótulo curto de uma publicação para o seletor da automação. */
+function postLabel(post: AutomationTarget) {
+  const caption = post.caption.replace(/\s+/g, " ").trim();
+  const title = caption ? (caption.length > 52 ? `${caption.slice(0, 52)}…` : caption) : "Publicação sem legenda";
+  const when = post.publishedAt ?? post.scheduledAt;
+  const date = when ? new Date(when).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : null;
+  return `${post.status === "published" ? "Publicado" : "Agendado"}${date ? ` ${date}` : ""} · ${title}`;
+}
+
+function DirectAutomation({ data, ready, reload, initialPostId }: { data: StudioData | null; ready: boolean; reload: () => void; initialPostId?: string }) {
+  const [form, setForm] = useState({ name: "", keywords: "", response: "", postId: initialPostId ?? "" });
+  const [saving, setSaving] = useState(false); const [error, setError] = useState("");
+  const targets = data?.automationTargets ?? [];
+  // Quando a página é aberta pelo atalho do composer/calendário já vem a publicação escolhida.
+  useEffect(() => { if (initialPostId) setForm((f) => ({ ...f, postId: initialPostId })); }, [initialPostId]);
+  async function create() { setSaving(true); setError(""); try { await callStudio({ action: "createAutomation", ...form, postId: form.postId || undefined }); setForm({ name: "", keywords: "", response: "", postId: "" }); await reload(); toast.success("Automação criada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setSaving(false); } }
   async function mutate(body: Record<string, unknown>) { try { await callStudio(body); await reload(); } catch (e) { toast.error(e instanceof Error ? e.message : "Erro."); } }
-  return <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+  return <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
     <Panel title="Nova automação" icon={<Bot size={17} />}>
-      {!data?.status.meta && <ConnectionWarning provider="Meta" />}
+      {!data?.status.meta && <ConnectionWarning provider="Meta" ready={ready} />}
       <Field label="Nome da automação"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex.: Enviar catálogo" /></Field>
+      <Field label="Publicação">
+        <select className={inputCls} value={form.postId} onChange={(e) => setForm({ ...form, postId: e.target.value })}>
+          <option value="">Qualquer direct recebido</option>
+          {targets.map((post) => <option key={post.id} value={post.id}>{postLabel(post)}</option>)}
+        </select>
+      </Field>
+      <p className="-mt-2 text-[11px] leading-4 text-muted">
+        {form.postId
+          ? "A resposta sai no direct de quem comentar essa publicação usando uma das palavras-gatilho."
+          : "Sem publicação escolhida, a regra responde qualquer direct que contenha as palavras-gatilho."}
+      </p>
       <Field label="Palavras-gatilho (separadas por vírgula)"><input className={inputCls} value={form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} placeholder="catálogo, preço, quero comprar" /></Field>
       <Field label="Resposta automática"><textarea className={cn(inputCls, "h-28 py-3 resize-none")} value={form.response} onChange={(e) => setForm({ ...form, response: e.target.value })} placeholder="Olá! Que bom ter você aqui. Segue o nosso catálogo..." /></Field>
       {error && <InlineError>{error}</InlineError>}
@@ -294,12 +327,12 @@ function DirectAutomation({ data, reload }: { data: StudioData | null; reload: (
       <p className="text-[11.5px] text-muted">As regras podem ser criadas antes da conexão. O envio só é ativado quando a Meta estiver conectada.</p>
     </Panel>
     <Panel title="Automações ativas" icon={<MessageCircle size={17} />}>
-      {!data ? <Loading /> : data.automations.length === 0 ? <Empty icon={<Bot />} text="Nenhuma automação criada." /> : <div className="space-y-3">{data.automations.map((a) => <div key={a.id} className="rounded-2xl border border-border p-4"><div className="flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent"><MessageCircle size={17} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-[13.5px]">{a.name}</p><Badge tone={a.active ? "success" : "neutral"}>{a.active ? "Ativa" : "Pausada"}</Badge></div><p className="mt-1 text-[12px] text-muted">Gatilhos: {a.triggerKeywords.join(", ")}</p><p className="mt-2 rounded-xl bg-surface-2 px-3 py-2 text-[12.5px]">{a.responseTemplate}</p><p className="mt-2 text-[11px] text-muted">{a.sentCount} respostas enviadas</p></div><Switch checked={a.active} onChange={(active) => mutate({ action: "toggleAutomation", id: a.id, active })} /><button onClick={() => mutate({ action: "deleteAutomation", id: a.id })} className="p-1.5 text-muted hover:text-danger" aria-label="Excluir"><Trash2 size={15} /></button></div></div>)}</div>}
+      {!data ? <Loading /> : data.automations.length === 0 ? <Empty icon={<Bot />} text="Nenhuma automação criada." /> : <div className="space-y-3">{data.automations.map((a) => <div key={a.id} className="rounded-2xl border border-border p-4"><div className="flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent"><MessageCircle size={17} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-[13.5px]">{a.name}</p><Badge tone={a.active ? "success" : "neutral"}>{a.active ? "Ativa" : "Pausada"}</Badge></div><p className="mt-1 break-words text-[12px] text-muted">Gatilhos: {a.triggerKeywords.join(", ")}</p><p className="mt-1 flex items-start gap-1.5 text-[11.5px] text-muted"><MessageCircle size={12} className="mt-0.5 shrink-0" /><span className="min-w-0 break-words">{a.postId ? (targets.find((t) => t.id === a.postId) ? `Comentários de: ${postLabel(targets.find((t) => t.id === a.postId)!)}` : "Comentários de uma publicação removida") : "Qualquer direct recebido"}</span></p><p className="mt-2 rounded-xl bg-surface-2 px-3 py-2 text-[12.5px]">{a.responseTemplate}</p><p className="mt-2 text-[11px] text-muted">{a.sentCount} respostas enviadas</p></div><Switch checked={a.active} onChange={(active) => mutate({ action: "toggleAutomation", id: a.id, active })} /><button onClick={() => mutate({ action: "deleteAutomation", id: a.id })} className="p-1.5 text-muted hover:text-danger" aria-label="Excluir"><Trash2 size={15} /></button></div></div>)}</div>}
     </Panel>
   </div>;
 }
 
-function Intelligence({ data, reload }: { data: StudioData | null; reload: () => void }) {
+function Intelligence({ data, ready, reload }: { data: StudioData | null; ready: boolean; reload: () => void }) {
   const [mode, setMode] = useState<"daily" | "trends" | "music" | "competitors">("daily"); const [niche, setNiche] = useState(""); const [platform, setPlatform] = useState("Instagram e TikTok"); const [result, setResult] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [dailyRequested, setDailyRequested] = useState(false);
   const [competitor, setCompetitor] = useState({ name: "", handle: "", platform: "instagram" });
   async function research(target = mode) { setLoading(true); setError(""); try { const payload = target === "daily" ? { action: "dailyTrends" } : target === "competitors" ? { action: "analyzeCompetitors" } : { action: target, niche, platform }; const response = await callStudio(payload); setResult(response.text ?? ""); if (target !== "daily" || !response.cached) toast.success(target === "daily" ? "Tendências do dia carregadas." : "Pesquisa atualizada."); } catch (e) { setError(e instanceof Error ? e.message : "Erro."); } finally { setLoading(false); } }
@@ -314,10 +347,10 @@ function Intelligence({ data, reload }: { data: StudioData | null; reload: () =>
   }, [data, mode, dailyRequested]);
   return <div className="space-y-5">
     <div className="overflow-x-auto pb-1"><Segmented value={mode} onChange={(value) => { setMode(value); setResult(value === "daily" ? data?.dailyTrend?.text ?? "" : ""); setError(""); }} options={[{ value: "daily", label: "Tendências do dia" }, { value: "trends", label: "Buscar por nicho" }, { value: "music", label: "Músicas em alta" }, { value: "competitors", label: "Concorrentes" }]} /></div>
-    <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+    <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
       <Panel title={mode === "daily" ? "Panorama geral de hoje" : mode === "trends" ? "Radar por nicho" : mode === "music" ? "Radar de áudios" : "Monitoramento competitivo"} icon={mode === "daily" || mode === "trends" ? <TrendingUp size={17} /> : mode === "music" ? <Music2 size={17} /> : <Radar size={17} />}>
-        {!data?.status.ai && <ConnectionWarning provider="Gemini" />}
-        {mode === "daily" ? <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-4"><p className="text-[13px] font-semibold">Resumo geral, sem filtro de nicho</p><p className="mt-1 text-[11.5px] leading-5 text-muted">Atualizado automaticamente uma vez por dia e exibido assim que você abre o radar. A mesma análise é reutilizada durante o dia para controlar custos.</p>{data?.dailyTrend?.updatedAt && <p className="mt-2 text-[10.5px] text-muted">Última atualização: {new Date(data.dailyTrend.updatedAt).toLocaleString("pt-BR")}</p>}</div> : mode !== "competitors" ? <><Field label="Nicho"><input className={inputCls} value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Ex.: cafeterias especiais em Salvador" /></Field><Field label="Redes prioritárias"><input className={inputCls} value={platform} onChange={(e) => setPlatform(e.target.value)} /></Field></> : <><div className="grid gap-2 sm:grid-cols-[1fr_1fr_120px]"><input className={inputCls} value={competitor.name} onChange={(e) => setCompetitor({ ...competitor, name: e.target.value })} placeholder="Nome" /><input className={inputCls} value={competitor.handle} onChange={(e) => setCompetitor({ ...competitor, handle: e.target.value })} placeholder="@perfil" /><select className={inputCls} value={competitor.platform} onChange={(e) => setCompetitor({ ...competitor, platform: e.target.value })}><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option></select></div><Button variant="outline" className="w-full" onClick={addCompetitor} disabled={!competitor.name || !competitor.handle}><Plus size={15} /> Adicionar concorrente</Button><div className="space-y-2">{(data?.competitors ?? []).map((c) => <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border px-3 py-2"><Radar size={14} className="text-accent" /><span className="flex-1 text-[12.5px]"><b>{c.name}</b> · @{c.handle}</span><button onClick={() => remove(c.id)} className="text-muted hover:text-danger"><Trash2 size={14} /></button></div>)}</div></>}
+        {!data?.status.ai && <ConnectionWarning provider="Gemini" ready={ready} />}
+        {mode === "daily" ? <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-4"><p className="text-[13px] font-semibold">Resumo geral, sem filtro de nicho</p><p className="mt-1 text-[11.5px] leading-5 text-muted">Atualizado automaticamente uma vez por dia e exibido assim que você abre o radar. A mesma análise é reutilizada durante o dia para controlar custos.</p>{data?.dailyTrend?.updatedAt && <p className="mt-2 text-[10.5px] text-muted">Última atualização: {new Date(data.dailyTrend.updatedAt).toLocaleString("pt-BR")}</p>}</div> : mode !== "competitors" ? <><Field label="Nicho"><input className={inputCls} value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Ex.: cafeterias especiais em Salvador" /></Field><Field label="Redes prioritárias"><input className={inputCls} value={platform} onChange={(e) => setPlatform(e.target.value)} /></Field></> : <><div className="grid gap-2 sm:grid-cols-[1fr_1fr_120px]"><input className={inputCls} value={competitor.name} onChange={(e) => setCompetitor({ ...competitor, name: e.target.value })} placeholder="Nome" /><input className={inputCls} value={competitor.handle} onChange={(e) => setCompetitor({ ...competitor, handle: e.target.value })} placeholder="@perfil" /><select className={inputCls} value={competitor.platform} onChange={(e) => setCompetitor({ ...competitor, platform: e.target.value })}><option value="instagram">Instagram</option><option value="tiktok">TikTok</option><option value="youtube">YouTube</option></select></div><Button variant="outline" className="w-full" onClick={addCompetitor} disabled={!competitor.name || !competitor.handle}><Plus size={15} /> Adicionar concorrente</Button><div className="space-y-2">{(data?.competitors ?? []).map((c) => <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border px-3 py-2"><Radar size={14} className="shrink-0 text-accent" /><span className="min-w-0 flex-1 break-words text-[12.5px]"><b>{c.name}</b> · @{c.handle}</span><button onClick={() => remove(c.id)} className="shrink-0 text-muted hover:text-danger" aria-label={`Remover ${c.name}`}><Trash2 size={14} /></button></div>)}</div></>}
         {error && <InlineError>{error}</InlineError>}
         <Button className="w-full" onClick={() => research()} loading={loading} disabled={!data?.status.ai || (mode !== "daily" && mode !== "competitors" ? !niche : mode === "competitors" ? !(data?.competitors.length) : false)}><Radar size={16} /> {mode === "daily" ? "Carregar panorama de hoje" : "Pesquisar agora"}</Button>
       </Panel>
@@ -326,8 +359,10 @@ function Intelligence({ data, reload }: { data: StudioData | null; reload: () =>
   </div>;
 }
 
-function Panel({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) { return <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm"><div className="mb-5 flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent-soft text-accent">{icon}</span><h3 className="text-[14px] font-semibold">{title}</h3></div><div className="space-y-4">{children}</div></section>; }
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label><span className={labelCls}>{label}</span>{children}</label>; }
+// `min-w-0` impede que um filho largo (texto da IA, tabela) estique a coluna do
+// grid além da tela — sem isso o `1fr` cresce e a página rola na horizontal.
+function Panel({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) { return <section className="min-w-0 rounded-2xl border border-border bg-surface p-4 shadow-sm sm:p-5"><div className="mb-5 flex items-center gap-2"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">{icon}</span><h3 className="min-w-0 text-[14px] font-semibold">{title}</h3></div><div className="min-w-0 space-y-4">{children}</div></section>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block min-w-0"><span className={labelCls}>{label}</span>{children}</label>; }
 function Loading() { return <div className="flex justify-center py-12 text-muted"><Loader2 className="animate-spin" /></div>; }
 function Empty({ icon, text }: { icon: React.ReactNode; text: string }) { return <div className="flex flex-col items-center justify-center py-16 text-center text-muted"><span className="mb-3 opacity-40">{icon}</span><p className="text-[13px]">{text}</p></div>; }
-function ResultPanel({ title, empty, result, loading }: { title: string; empty: string; result: string; loading: boolean }) { return <Panel title={title} icon={<Sparkles size={17} />}>{loading ? <div className="flex min-h-80 flex-col items-center justify-center text-muted"><Loader2 className="mb-3 animate-spin" /><p className="text-[13px]">Analisando e criando...</p></div> : result ? <div className="whitespace-pre-wrap rounded-xl bg-surface-2/60 p-4 text-[13px] leading-6">{result}</div> : <Empty icon={<Sparkles size={30} />} text={empty} />}</Panel>; }
+function ResultPanel({ title, empty, result, loading }: { title: string; empty: string; result: string; loading: boolean }) { return <Panel title={title} icon={<Sparkles size={17} />}>{loading ? <div className="flex min-h-60 flex-col items-center justify-center text-muted sm:min-h-80"><Loader2 className="mb-3 animate-spin" /><p className="text-[13px]">Analisando e criando...</p></div> : result ? <div className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-surface-2/60 p-3.5 text-[13px] leading-6 [overflow-wrap:anywhere] sm:p-4">{result}</div> : <Empty icon={<Sparkles size={30} />} text={empty} />}</Panel>; }

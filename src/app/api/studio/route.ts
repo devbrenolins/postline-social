@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { aiGenerations, competitors, directAutomations, media } from "@/db/schema";
+import { aiGenerations, competitors, directAutomations, media, posts } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { AiConfigurationError, aiConfigured, generateCreative, generateText, imageConfigured, imageModel, imageProvider, textModel, type ImageSize, type ReferenceImage } from "@/lib/ai";
 import { IMAGE_DIMENSIONS } from "@/lib/ai-types";
@@ -87,12 +87,19 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   const wid = user.workspaceId;
   const dailyKind = `daily_trends:${todayKey()}`;
-  const [automationRows, competitorRows, history, dailyRows, credits] = await Promise.all([
+  const [automationRows, competitorRows, history, dailyRows, credits, postRows] = await Promise.all([
     db.select().from(directAutomations).where(and(eq(directAutomations.workspaceId, wid), isNull(directAutomations.deletedAt))).orderBy(desc(directAutomations.createdAt)),
     db.select().from(competitors).where(and(eq(competitors.workspaceId, wid), isNull(competitors.deletedAt))).orderBy(desc(competitors.createdAt)),
     db.select().from(aiGenerations).where(eq(aiGenerations.workspaceId, wid)).orderBy(desc(aiGenerations.createdAt)).limit(12),
     db.select().from(aiGenerations).where(and(eq(aiGenerations.workspaceId, wid), eq(aiGenerations.kind, dailyKind))).orderBy(desc(aiGenerations.createdAt)).limit(1),
     dailyCredits(wid),
+    // Publicações que podem receber uma automação de comentário → direct.
+    db
+      .select({ id: posts.id, caption: posts.caption, status: posts.status, mediaUrls: posts.mediaUrls, scheduledAt: posts.scheduledAt, publishedAt: posts.publishedAt })
+      .from(posts)
+      .where(and(eq(posts.workspaceId, wid), isNull(posts.deletedAt), inArray(posts.status, ["scheduled", "published"])))
+      .orderBy(desc(posts.createdAt))
+      .limit(50),
   ]);
   return NextResponse.json({
     status: {
@@ -104,6 +111,7 @@ export async function GET() {
       imageProvider: imageProvider(),
     },
     automations: automationRows,
+    automationTargets: postRows,
     competitors: competitorRows,
     history,
     dailyTrend: dailyRows[0] ? { text: dailyRows[0].resultText, updatedAt: dailyRows[0].createdAt } : null,
@@ -248,10 +256,24 @@ export async function POST(req: NextRequest) {
     if (body.action === "createAutomation") {
       const keywords = String(body.keywords ?? "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
       if (!body.name || !keywords.length || !body.response) return NextResponse.json({ error: "Preencha nome, gatilhos e resposta." }, { status: 400 });
+
+      // Vínculo opcional com uma publicação — precisa ser do próprio workspace.
+      let postId: string | null = null;
+      if (body.postId) {
+        const [target] = await db
+          .select({ id: posts.id })
+          .from(posts)
+          .where(and(eq(posts.id, String(body.postId)), eq(posts.workspaceId, wid), isNull(posts.deletedAt)))
+          .limit(1);
+        if (!target) return NextResponse.json({ error: "Publicação não encontrada." }, { status: 404 });
+        postId = target.id;
+      }
+
       const [row] = await db.insert(directAutomations).values({
         workspaceId: wid,
         name: String(body.name).trim(),
         platform: "instagram",
+        postId,
         triggerKeywords: keywords,
         responseTemplate: String(body.response).trim(),
       }).returning();

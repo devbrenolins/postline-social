@@ -4,8 +4,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft, ChevronRight, Plus, CalendarDays, ListChecks, LayoutGrid,
-  Pencil, Copy, Send, Ban, Trash2, Clock, Heart, Eye, MessageCircle, Share2, Bookmark, Filter,
+  Pencil, Copy, Send, Ban, Trash2, Clock, Heart, Eye, MessageCircle, Share2, Bookmark, Filter, Bot,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths,
   isSameMonth, isSameDay, format, isToday,
@@ -385,6 +386,7 @@ function PostDetail({ post, onClose, onEdit, onPatch, clientName }: {
   clientName?: string;
 }) {
   const [confirmDel, setConfirmDel] = useState(false);
+  const router = useRouter();
   useEffect(() => setConfirmDel(false), [post]);
   if (!post) return null;
   const when = post.scheduledAt ?? post.publishedAt;
@@ -447,6 +449,14 @@ function PostDetail({ post, onClose, onEdit, onPatch, clientName }: {
               </>
             )}
             <Button variant="outline" size="sm" onClick={() => onPatch(post.id, { action: "duplicate" }, "Publicação duplicada como rascunho.")}><Copy size={13} /> Duplicar</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { onClose(); router.push(`/studio?tab=direct&post=${post.id}`); }}
+              title="Responder no direct quem comentar esta publicação"
+            >
+              <Bot size={13} /> Automação de direct
+            </Button>
             {post.status === "scheduled" && (
               <Button variant="outline" size="sm" onClick={() => onPatch(post.id, { action: "cancel" }, "Agendamento cancelado.")}><Ban size={13} /> Cancelar</Button>
             )}

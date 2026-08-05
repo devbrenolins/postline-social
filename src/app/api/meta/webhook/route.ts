@@ -1,9 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { directAutomations, socialAccounts, inboxItems, notifications } from "@/db/schema";
+import { directAutomations, socialAccounts, inboxItems, notifications, posts } from "@/db/schema";
 import { verifyMetaSignature } from "@/lib/meta";
-import { sendDirectMessage } from "@/lib/instagram";
+import { sendCommentPrivateReply, sendDirectMessage } from "@/lib/instagram";
+
+/**
+ * Descobre a publicação do Postline a partir do id de mídia do Instagram.
+ *
+ * `posts.externalMedia` guarda um par por conta publicada, então o casamento é
+ * feito em JSON — a lista por workspace é pequena e só roda quando existe
+ * comentário com mídia.
+ */
+async function findPostByExternalMedia(workspaceId: string, mediaId: string) {
+  const rows = await db
+    .select({ id: posts.id, externalMedia: posts.externalMedia })
+    .from(posts)
+    .where(and(eq(posts.workspaceId, workspaceId), isNull(posts.deletedAt), eq(posts.status, "published")));
+  return rows.find((row) => (row.externalMedia ?? []).some((entry) => entry.mediaId === mediaId)) ?? null;
+}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -79,6 +94,31 @@ export async function POST(req: NextRequest) {
         body: commentText.slice(0, 180),
         kind: "info",
       });
+
+      // ---- Automação "comente X, receba no direct" ----
+      // Só entram regras vinculadas justamente à publicação comentada.
+      const mediaId = c.media?.id;
+      const commentId = c.id;
+      if (!mediaId || !commentId) continue;
+
+      const post = await findPostByExternalMedia(account.workspaceId, mediaId);
+      if (!post) continue;
+
+      const lowered = commentText.toLowerCase();
+      const rule = rules.find(
+        (item) => item.postId === post.id && item.triggerKeywords.some((k) => lowered.includes(k.toLowerCase()))
+      );
+      if (!rule) continue;
+
+      try {
+        await sendCommentPrivateReply(igId, account.accessToken, commentId, rule.responseTemplate);
+        await db
+          .update(directAutomations)
+          .set({ sentCount: sql`${directAutomations.sentCount} + 1`, lastSentAt: new Date(), updatedAt: new Date() })
+          .where(eq(directAutomations.id, rule.id));
+      } catch {
+        // Resposta privada já usada neste comentário, fora dos 7 dias ou sem permissão.
+      }
     }
 
     // ---- Mensagens diretas (entry.messaging) ----
@@ -104,7 +144,9 @@ export async function POST(req: NextRequest) {
         kind: "info",
       });
 
-      const rule = rules.find((item) => item.triggerKeywords.some((k) => text.includes(k.toLowerCase())));
+      // Regras presas a uma publicação só valem no fluxo de comentário — num
+      // direct solto não há como saber de qual post a pessoa veio.
+      const rule = rules.find((item) => !item.postId && item.triggerKeywords.some((k) => text.includes(k.toLowerCase())));
       if (!rule) continue;
       try {
         await sendDirectMessage(igId, account.accessToken, senderId, rule.responseTemplate);

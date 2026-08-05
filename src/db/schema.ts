@@ -411,6 +411,9 @@ export const directAutomations = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 160 }).notNull(),
     platform: varchar("platform", { length: 24 }).$type<Platform>().notNull().default("instagram"),
+    // Quando preenchido, a regra só vale para comentários daquela publicação.
+    // Nulo = vale para qualquer direct do workspace (comportamento original).
+    postId: uuid("post_id").references(() => posts.id, { onDelete: "cascade" }),
     triggerKeywords: jsonb("trigger_keywords").$type<string[]>().notNull().default([]),
     responseTemplate: text("response_template").notNull(),
     active: boolean("active").notNull().default(true),
@@ -420,7 +423,7 @@ export const directAutomations = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("direct_automations_workspace_idx").on(t.workspaceId)]
+  (t) => [index("direct_automations_workspace_idx").on(t.workspaceId), index("direct_automations_post_idx").on(t.postId)]
 );
 
 export const competitors = pgTable(

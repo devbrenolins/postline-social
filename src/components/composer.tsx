@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   X, CalendarClock, Send, Save, Undo2, Redo2, ImagePlus, Trash2, Hash, Smile,
   Sparkles, ChevronLeft, ChevronRight, Loader2, Heart, MessageCircle, Bookmark,
-  Share2, MoreHorizontal, Check, Film, Layers, FileText, MonitorPlay, StickyNote, Upload,
+  Share2, MoreHorizontal, Check, Film, Layers, FileText, MonitorPlay, StickyNote, Upload, Bot,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, useScrollLock } from "@/components/ui";
 import type { Post, MediaItem, PlatformT } from "@/lib/types";
 import { useWorkspace } from "@/components/workspace-context";
@@ -61,6 +62,7 @@ function toLocalInput(iso: string | null | undefined): string {
 
 function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
   const { data: ws, refetch } = useWorkspace();
+  const router = useRouter();
   const editing = opts.post;
   const [postId, setPostId] = useState<string | null>(editing?.id ?? null);
   const [status, setStatus] = useState<string>(editing?.status ?? "draft");
@@ -439,6 +441,16 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
           {editing && status !== "published" && (
             <Button variant="ghost" size="md" className="text-danger hover:bg-danger/10" onClick={remove}>
               <Trash2 size={14} /> Excluir
+            </Button>
+          )}
+          {postId && (
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={() => { close(); router.push(`/studio?tab=direct&post=${postId}`); }}
+              title="Criar uma resposta automática no direct para quem comentar esta publicação"
+            >
+              <Bot size={14} /> Automação de direct
             </Button>
           )}
           <div className="ml-auto grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">

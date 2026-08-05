@@ -241,6 +241,21 @@ export async function sendDirectMessage(igId: string, token: string, recipientId
   });
 }
 
+/**
+ * Resposta privada a um comentário ("comente X que eu te mando no direct").
+ *
+ * Usa `recipient.comment_id` em vez de `recipient.id`: é o único caminho que a
+ * Meta permite para abrir uma conversa a partir de um comentário, e só funciona
+ * uma vez por comentário, dentro de 7 dias.
+ */
+export async function sendCommentPrivateReply(igId: string, token: string, commentId: string, text: string) {
+  return graphPost(`/${igId}/messages`, {
+    access_token: token,
+    recipient: JSON.stringify({ comment_id: commentId }),
+    message: JSON.stringify({ text }),
+  });
+}
+
 /** Cria um container de mídia (foto ou vídeo/reel) e retorna o creation id. */
 export async function createMediaContainer(
   igId: string,
