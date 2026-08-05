@@ -6,6 +6,7 @@ import {
   X, CalendarClock, Send, Save, Undo2, Redo2, ImagePlus, Trash2, Hash, Smile,
   Sparkles, ChevronLeft, ChevronRight, Loader2, Heart, MessageCircle, Bookmark,
   Share2, MoreHorizontal, Check, Film, Layers, FileText, MonitorPlay, StickyNote, Upload, Bot,
+  ThumbsUp, Music2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, useScrollLock } from "@/components/ui";
@@ -77,7 +78,7 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
   );
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [busy, setBusy] = useState<null | "draft" | "schedule" | "publish">(null);
-  const [preview, setPreview] = useState<"instagram" | "x">("instagram");
+  const [preview, setPreview] = useState<PlatformT>("instagram");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const captionRef = useRef<HTMLTextAreaElement>(null);
@@ -185,6 +186,11 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
   }
 
   const canInteract = status !== "published";
+
+  // Se a rede em pré-visualização for desmarcada, cai na primeira ainda ativa
+  // em vez de mostrar uma tela vazia.
+  const previewTabs: PlatformT[] = networks.length ? networks : ["instagram"];
+  const activePreview: PlatformT = previewTabs.includes(preview) ? preview : previewTabs[0];
 
   useScrollLock(true);
 
@@ -414,17 +420,19 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
 
           {/* ------------------------------ Preview ------------------------------ */}
           <div className="hidden flex-col border-l border-border bg-surface-2/50 lg:flex">
-            <div className="flex items-center justify-center gap-1 border-b border-border p-2.5">
-              {(["instagram", "x"] as const).map((p) => (
+            {/* As abas seguem as redes escolhidas — não adianta pré-visualizar
+                onde a publicação não vai sair. */}
+            <div className="flex flex-wrap items-center justify-center gap-1 border-b border-border p-2.5">
+              {previewTabs.map((p) => (
                 <button key={p} onClick={() => setPreview(p)}
-                  className={cn("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition", preview === p ? "bg-foreground text-background" : "text-muted hover:text-foreground")}>
-                  <PlatformIcon platform={p} size={12} /> {p === "instagram" ? "Instagram" : "X"}
+                  className={cn("flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition", activePreview === p ? "bg-foreground text-background" : "text-muted hover:text-foreground")}>
+                  <PlatformIcon platform={p} size={12} /> {PLATFORM_META[p].name}
                 </button>
               ))}
             </div>
             <div className="flex flex-1 items-start justify-center overflow-y-auto p-5">
               <PhonePreview
-                variant={preview}
+                variant={activePreview}
                 accountName={account?.displayName ?? client?.name ?? ws?.workspace.name ?? "Sua marca"}
                 handle={account?.handle ?? "suamarca"}
                 color={client?.color ?? ws?.workspace.color ?? "#AB2F5F"}
@@ -502,10 +510,164 @@ function renderCaption(text: string, max = 160) {
   );
 }
 
-function PhonePreview({ variant, accountName, handle, color, caption, mediaUrls, format }: {
-  variant: "instagram" | "x"; accountName: string; handle: string; color: string; caption: string; mediaUrls: string[]; format: string;
-}) {
+type PreviewProps = {
+  accountName: string; handle: string; color: string; caption: string; mediaUrls: string[]; format: string;
+};
+
+/** Formatos que ocupam a tela inteira em 9:16. */
+function isVertical(format: string) {
+  return format === "story" || format === "reel";
+}
+
+function MediaBox({ url, className, empty = "Pré-visualização de mídia" }: { url?: string; className: string; empty?: string }) {
+  if (url) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={url} alt="" className={cn("w-full object-cover", className)} />;
+  }
+  return (
+    <div className={cn("flex w-full flex-col items-center justify-center gap-2 bg-surface-2 text-muted", className)}>
+      <MonitorPlay size={22} />
+      <span className="text-[11px]">{empty}</span>
+    </div>
+  );
+}
+
+function FacebookPreview({ accountName, color, caption, mediaUrls, format }: PreviewProps) {
+  return (
+    <div className="w-full max-w-70 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <Avatar name={accountName} color={color} size={30} />
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-[12.5px] font-semibold">{accountName}</p>
+          <p className="text-[10px] text-muted">agora · Público</p>
+        </div>
+        <MoreHorizontal size={15} className="text-muted" />
+      </div>
+      <p className="px-3 pb-2.5 text-[12.5px] leading-snug">
+        {caption ? renderCaption(caption, 200) : <span className="text-muted/60">Sua legenda aparece aqui…</span>}
+      </p>
+      <MediaBox url={mediaUrls[0]} className={isVertical(format) ? "aspect-[9/16] max-h-85" : "aspect-[4/3]"} />
+      <div className="flex items-center justify-between px-3 py-2 text-[11px] text-muted">
+        <span className="flex items-center gap-1"><ThumbsUp size={11} className="text-info" /> 328</span>
+        <span>27 comentários · 8 compartilhamentos</span>
+      </div>
+      <div className="flex items-center justify-around border-t border-border py-1.5 text-[11.5px] font-medium text-muted">
+        <span className="flex items-center gap-1.5"><ThumbsUp size={15} /> Curtir</span>
+        <span className="flex items-center gap-1.5"><MessageCircle size={15} /> Comentar</span>
+        <span className="flex items-center gap-1.5"><Share2 size={15} /> Compartilhar</span>
+      </div>
+    </div>
+  );
+}
+
+function LinkedInPreview({ accountName, handle, color, caption, mediaUrls, format }: PreviewProps) {
+  return (
+    <div className="w-full max-w-70 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <div className="flex items-start gap-2.5 px-3 py-2.5">
+        <Avatar name={accountName} color={color} size={34} />
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-[12.5px] font-semibold">{accountName}</p>
+          <p className="truncate text-[10.5px] text-muted">@{handle}</p>
+          <p className="text-[10px] text-muted">agora · 🌐</p>
+        </div>
+        <MoreHorizontal size={15} className="text-muted" />
+      </div>
+      <p className="px-3 pb-2.5 text-[12.5px] leading-snug">
+        {caption ? renderCaption(caption, 220) : <span className="text-muted/60">Sua legenda aparece aqui…</span>}
+        {caption.length > 220 && <button className="ml-1 text-muted">…ver mais</button>}
+      </p>
+      <MediaBox url={mediaUrls[0]} className={isVertical(format) ? "aspect-[9/16] max-h-85" : "aspect-[1.91/1]"} />
+      <div className="flex items-center justify-between px-3 py-2 text-[11px] text-muted">
+        <span className="flex items-center gap-1"><ThumbsUp size={11} className="text-info" /> 142</span>
+        <span>19 comentários</span>
+      </div>
+      <div className="flex items-center justify-around border-t border-border py-1.5 text-[11.5px] font-medium text-muted">
+        <span className="flex items-center gap-1.5"><ThumbsUp size={15} /> Gostei</span>
+        <span className="flex items-center gap-1.5"><MessageCircle size={15} /> Comentar</span>
+        <span className="flex items-center gap-1.5"><Share2 size={15} /> Republicar</span>
+      </div>
+    </div>
+  );
+}
+
+function TikTokPreview({ accountName, handle, color, caption, mediaUrls }: PreviewProps) {
+  return (
+    <div className="relative w-full max-w-70 overflow-hidden rounded-2xl border border-border bg-black shadow-sm">
+      {/* O TikTok é sempre 9:16, independente do formato escolhido. */}
+      <MediaBox url={mediaUrls[0]} className="aspect-[9/16] max-h-95" empty="Vídeo vertical 9:16" />
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 pr-12">
+        <p className="text-[12px] font-semibold text-white">@{handle}</p>
+        <p className="mt-1 text-[11.5px] leading-snug text-white/90">
+          {caption ? renderCaption(caption, 110) : <span className="text-white/50">Sua legenda aparece aqui…</span>}
+        </p>
+        <p className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-white/80">
+          <Music2 size={10} /> som original · {accountName}
+        </p>
+      </div>
+      <div className="absolute bottom-4 right-2.5 flex flex-col items-center gap-3.5 text-white">
+        <span className="flex flex-col items-center"><Avatar name={accountName} color={color} size={30} /></span>
+        <span className="flex flex-col items-center gap-0.5"><Heart size={21} /><span className="text-[9.5px]">12,4 mil</span></span>
+        <span className="flex flex-col items-center gap-0.5"><MessageCircle size={21} /><span className="text-[9.5px]">308</span></span>
+        <span className="flex flex-col items-center gap-0.5"><Bookmark size={21} /><span className="text-[9.5px]">1.902</span></span>
+        <span className="flex flex-col items-center gap-0.5"><Share2 size={21} /><span className="text-[9.5px]">560</span></span>
+      </div>
+    </div>
+  );
+}
+
+function YoutubePreview({ accountName, color, caption, mediaUrls, format }: PreviewProps) {
+  const title = caption.split("\n")[0].trim();
+  // Reels/Stories viram Shorts: 9:16 e overlay, em vez do card 16:9.
+  if (isVertical(format)) {
+    return (
+      <div className="relative w-full max-w-70 overflow-hidden rounded-2xl border border-border bg-black shadow-sm">
+        <MediaBox url={mediaUrls[0]} className="aspect-[9/16] max-h-95" empty="Short vertical 9:16" />
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 pr-12">
+          <p className="text-[11.5px] leading-snug text-white/90">
+            {title || <span className="text-white/50">Seu título aparece aqui…</span>}
+          </p>
+          <p className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-white/80">
+            <Avatar name={accountName} color={color} size={16} /> {accountName}
+          </p>
+        </div>
+        <div className="absolute bottom-4 right-2.5 flex flex-col items-center gap-3.5 text-white">
+          <span className="flex flex-col items-center gap-0.5"><ThumbsUp size={20} /><span className="text-[9.5px]">8,1 mil</span></span>
+          <span className="flex flex-col items-center gap-0.5"><MessageCircle size={20} /><span className="text-[9.5px]">214</span></span>
+          <span className="flex flex-col items-center gap-0.5"><Share2 size={20} /><span className="text-[9.5px]">Enviar</span></span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="w-full max-w-70 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <div className="relative">
+        <MediaBox url={mediaUrls[0]} className="aspect-video" empty="Miniatura 16:9" />
+        <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1 py-px text-[9.5px] font-semibold text-white">8:24</span>
+      </div>
+      <div className="flex gap-2.5 p-3">
+        <Avatar name={accountName} color={color} size={30} />
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-[12.5px] font-semibold leading-snug">
+            {title || <span className="font-normal text-muted/60">Seu título aparece aqui…</span>}
+          </p>
+          <p className="mt-1 truncate text-[11px] text-muted">{accountName}</p>
+          <p className="text-[11px] text-muted">4,2 mil visualizações · agora</p>
+        </div>
+        <MoreHorizontal size={15} className="shrink-0 text-muted" />
+      </div>
+    </div>
+  );
+}
+
+function PhonePreview({ variant, accountName, handle, color, caption, mediaUrls, format }: PreviewProps & { variant: PlatformT }) {
   const [slide, setSlide] = useState(0);
+  const shared: PreviewProps = { accountName, handle, color, caption, mediaUrls, format };
+
+  if (variant === "facebook") return <FacebookPreview {...shared} />;
+  if (variant === "linkedin") return <LinkedInPreview {...shared} />;
+  if (variant === "tiktok") return <TikTokPreview {...shared} />;
+  if (variant === "youtube") return <YoutubePreview {...shared} />;
+
   if (variant === "x") {
     return (
       <div className="w-full max-w-70 rounded-2xl border border-border bg-surface p-4 shadow-sm">
