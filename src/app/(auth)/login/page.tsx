@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock, User, Building2, ArrowRight, TrendingUp, CheckCircle2, Heart, MessageCircle } from "lucide-react";
 import { Logo, Button, InlineError, inputCls, labelCls, cn } from "@/components/ui";
@@ -238,7 +239,15 @@ export default function LoginPage() {
           </motion.div>
         </div>
 
-        <p className="text-center text-[12px] text-muted/70">© 2026 Postline · Privacidade · Termos</p>
+        <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[12px] text-muted/70">
+          <span>© {new Date().getFullYear()} Postline</span>
+          <span aria-hidden>·</span>
+          <Link href="/privacidade" className="hover:text-foreground hover:underline">Privacidade</Link>
+          <span aria-hidden>·</span>
+          <Link href="/termos" className="hover:text-foreground hover:underline">Termos</Link>
+          <span aria-hidden>·</span>
+          <Link href="/exclusao-de-dados" className="hover:text-foreground hover:underline">Exclusão de dados</Link>
+        </p>
       </div>
 
       {/* ------------------------------------------------ Visual side */}

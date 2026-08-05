@@ -1,7 +1,20 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PREFIXES = ["/login", "/auth", "/api/auth", "/api/meta/webhook", "/api/health", "/api/cron"];
+// As páginas legais e o callback de exclusão precisam abrir sem sessão: o
+// revisor da Meta acessa as URLs direto, deslogado.
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/auth",
+  "/privacidade",
+  "/termos",
+  "/exclusao-de-dados",
+  "/api/auth",
+  "/api/meta/webhook",
+  "/api/meta/data-deletion",
+  "/api/health",
+  "/api/cron",
+];
 
 /**
  * Refresca a sessão do Supabase a cada navegação e protege as rotas do app.
