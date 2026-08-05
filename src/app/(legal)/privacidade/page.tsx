@@ -73,8 +73,7 @@ export default function PrivacidadePage() {
         <List
           items={[
             <><strong>Meta Platforms</strong> — integração com o Instagram (publicação, métricas, comentários e directs).</>,
-            <><strong>Supabase</strong> — autenticação de contas e armazenamento dos arquivos de mídia.</>,
-            <><strong>Neon</strong> — banco de dados da aplicação.</>,
+            <><strong>Supabase</strong> — autenticação de contas, banco de dados e armazenamento dos arquivos de mídia.</>,
             <><strong>Vercel</strong> — hospedagem e execução da aplicação.</>,
             <><strong>Google (Gemini)</strong> — geração de texto e pesquisa de tendências. Recebe apenas o briefing que você digita.</>,
             <><strong>Cloudflare e OpenAI</strong> — geração de imagens. Recebem apenas a descrição e as referências que você envia.</>,
