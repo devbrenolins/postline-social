@@ -7,7 +7,7 @@ import {
   Sparkles, ChevronLeft, ChevronRight, Loader2, Heart, MessageCircle, Bookmark,
   Share2, MoreHorizontal, Check, Film, Layers, FileText, MonitorPlay, StickyNote, Upload,
 } from "lucide-react";
-import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls } from "@/components/ui";
+import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, useScrollLock } from "@/components/ui";
 import type { Post, MediaItem, PlatformT } from "@/lib/types";
 import { useWorkspace } from "@/components/workspace-context";
 import { toast } from "sonner";
@@ -184,6 +184,8 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
 
   const canInteract = status !== "published";
 
+  useScrollLock(true);
+
   return (
     <motion.div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 backdrop-blur-[2px] sm:items-center sm:p-5"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Editor de publicação">
@@ -193,7 +195,7 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
         className="flex max-h-[94dvh] w-full max-w-245 flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl sm:rounded-2xl"
       >
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3.5">
           <h2 className="text-[14.5px] font-semibold">{editing ? "Editar publicação" : "Nova publicação"}</h2>
           <Badge tone={POST_STATUS[status]?.tone}>{POST_STATUS[status]?.label}</Badge>
           {editing && <span className="text-[11.5px] text-muted">v{editing.version}</span>}
@@ -433,7 +435,7 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-surface px-4 py-3.5 sm:px-5">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5">
           {editing && status !== "published" && (
             <Button variant="ghost" size="md" className="text-danger hover:bg-danger/10" onClick={remove}>
               <Trash2 size={14} /> Excluir

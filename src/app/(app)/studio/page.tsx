@@ -5,7 +5,7 @@ import {
   Bot, Check, CheckCircle2, Coins, Download, FolderOpen, ImageIcon, Loader2, MessageCircle, Music2,
   Paperclip, Plus, Radar, Sparkles, Trash2, TrendingUp, Video, WandSparkles, X,
 } from "lucide-react";
-import { Badge, Button, InlineError, Segmented, Switch, cn, inputCls, labelCls } from "@/components/ui";
+import { Badge, Button, InlineError, Segmented, Switch, cn, inputCls, labelCls, useScrollLock } from "@/components/ui";
 import { toast } from "sonner";
 
 type Tab = "script" | "creative" | "direct" | "intelligence";
@@ -261,14 +261,20 @@ function LibraryReferencePicker({ selected, onSelect, onClose }: { selected: Ref
   const [items, setItems] = useState<Array<{ id: string; name: string; url: string }>>([]); const [loading, setLoading] = useState(true);
   useEffect(() => { fetch("/api/media?type=image&limit=30").then((response) => response.json()).then((data) => setItems(data.media ?? [])).catch(() => toast.error("Não foi possível abrir a biblioteca.")).finally(() => setLoading(false)); }, []);
   const selectedIds = new Set(selected.map((item) => item.mediaId).filter(Boolean));
-  return <div className="fixed inset-0 z-60 flex items-end justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Biblioteca de referências">
+  useScrollLock(true);
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", fn);
+    return () => window.removeEventListener("keydown", fn);
+  }, [onClose]);
+  return <div className="fixed inset-0 z-60 flex items-end justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Biblioteca de referências" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
     <div className="flex max-h-[88dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl sm:rounded-2xl">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3"><FolderOpen size={16} className="text-accent" /><h3 className="text-[14px] font-semibold">Escolher da Biblioteca Postline</h3><span className="text-[11px] text-muted">{selected.length}/3</span><button onClick={onClose} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-surface-2" aria-label="Fechar biblioteca"><X size={16} /></button></div>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3"><FolderOpen size={16} className="text-accent" /><h3 className="text-[14px] font-semibold">Escolher da Biblioteca Postline</h3><span className="text-[11px] text-muted">{selected.length}/3</span><button onClick={onClose} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-surface-2" aria-label="Fechar biblioteca"><X size={16} /></button></div>
       {loading ? <Loading /> : items.length === 0 ? <Empty icon={<ImageIcon />} text="Nenhuma imagem na biblioteca." /> : <div className="grid grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3 md:grid-cols-4">{items.map((item) => { const active = selectedIds.has(item.id); return <button key={item.id} type="button" disabled={active || selected.length >= 3} onClick={() => onSelect({ mediaId: item.id, name: item.name, type: "image/jpeg", previewUrl: item.url })} className={cn("relative overflow-hidden rounded-xl border text-left transition", active ? "border-accent ring-2 ring-accent/20" : "border-border hover:border-accent/50", selected.length >= 3 && !active && "opacity-45")}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={item.url} alt={item.name} className="aspect-square w-full object-cover" /><p className="truncate px-2 py-1.5 text-[10.5px]">{item.name}</p>{active && <span className="absolute right-2 top-2 rounded-full bg-accent p-1 text-white"><Check size={12} /></span>}
       </button>; })}</div>}
-      <div className="border-t border-border p-3 text-right"><Button size="sm" onClick={onClose}>Concluir</Button></div>
+      <div className="shrink-0 border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] text-right"><Button size="sm" onClick={onClose}>Concluir</Button></div>
     </div>
   </div>;
 }

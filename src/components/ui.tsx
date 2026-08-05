@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X as CloseIcon, Loader2, AlertCircle } from "lucide-react";
 
@@ -175,43 +175,111 @@ export const POST_STATUS: Record<string, { label: string; tone: "neutral" | "acc
 };
 
 /* ---------------------------------- Modal ---------------------------------- */
+const FOCUSABLE =
+  'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+let scrollLocks = 0;
+let previousBodyStyle: { overflow: string; paddingRight: string } | null = null;
+
+/** Trava o scroll do body enquanto houver ao menos uma camada aberta. */
+export function useScrollLock(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    if (scrollLocks === 0) {
+      previousBodyStyle = { overflow: document.body.style.overflow, paddingRight: document.body.style.paddingRight };
+      const gap = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.overflow = "hidden";
+      if (gap > 0) document.body.style.paddingRight = `${gap}px`;
+    }
+    scrollLocks += 1;
+    return () => {
+      scrollLocks -= 1;
+      if (scrollLocks === 0 && previousBodyStyle) {
+        document.body.style.overflow = previousBodyStyle.overflow;
+        document.body.style.paddingRight = previousBodyStyle.paddingRight;
+        previousBodyStyle = null;
+      }
+    };
+  }, [active]);
+}
+
 export function Modal({ open, onClose, title, children, width = "max-w-lg", subtitle }: {
   open: boolean; onClose: () => void; title?: string; subtitle?: string; children: React.ReactNode; width?: string;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // Mantém o listener estável mesmo quando onClose é uma arrow inline.
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
+
+  useScrollLock(open);
+
   useEffect(() => {
-    const fn = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    if (open) window.addEventListener("keydown", fn);
+    if (!open) return;
+    const fn = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { closeRef.current(); return; }
+      if (e.key !== "Tab") return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && (active === first || !panel.contains(active))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-          role="dialog" aria-modal="true"
         >
           <motion.div
-            className={cn("w-full overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl sm:rounded-2xl", width)}
+            ref={panelRef}
+            role="dialog" aria-modal="true"
+            aria-labelledby={title !== undefined ? titleId : undefined}
+            aria-label={title === undefined ? "Detalhes" : undefined}
+            className={cn(
+              "relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl",
+              "sm:max-h-[88dvh] sm:rounded-2xl",
+              width
+            )}
             initial={{ y: 24, opacity: 0, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 380, damping: 34 }}
           >
-            {title !== undefined && (
-              <div className="flex items-start justify-between border-b border-border px-5 py-4">
-                <div>
-                  <h2 className="text-[15px] font-semibold">{title}</h2>
-                  {subtitle && <p className="mt-0.5 text-[12.5px] text-muted">{subtitle}</p>}
+            {title !== undefined ? (
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
+                <div className="min-w-0">
+                  <h2 id={titleId} className="truncate text-[15px] font-semibold">{title}</h2>
+                  {subtitle && <p className="mt-0.5 truncate text-[12.5px] text-muted">{subtitle}</p>}
                 </div>
-                <button onClick={onClose} className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground" aria-label="Fechar">
+                <button onClick={onClose} className="-mr-1 shrink-0 rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground" aria-label="Fechar">
                   <CloseIcon size={16} />
                 </button>
               </div>
+            ) : (
+              // Sem cabeçalho ainda precisa de uma saída visível — sobretudo no mobile,
+              // onde o sheet cobre quase todo o backdrop e não há tecla Esc.
+              <button
+                onClick={onClose}
+                className="absolute right-3 top-3 z-10 rounded-lg bg-surface/85 p-1.5 text-muted shadow-sm backdrop-blur transition hover:bg-surface-2 hover:text-foreground"
+                aria-label="Fechar"
+              >
+                <CloseIcon size={16} />
+              </button>
             )}
-            {children}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
+              {children}
+            </div>
           </motion.div>
         </motion.div>
       )}

@@ -11,7 +11,7 @@ import {
   UserRound, MonitorSmartphone, CornerDownLeft, Command as CommandIcon,
   BrainCircuit, Coins, Aperture,
 } from "lucide-react";
-import { cn, Logo, Avatar, Dropdown, Button, timeAgo } from "@/components/ui";
+import { cn, Logo, Avatar, Dropdown, Button, timeAgo, useScrollLock } from "@/components/ui";
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
 import { ComposerProvider, useComposer, ComposerModal } from "@/components/composer";
 import { toast } from "sonner";
@@ -79,6 +79,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
 
 /* --------------------------------- Sidebar --------------------------------- */
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useScrollLock(open);
   return (
     <>
       <div className="fixed inset-y-0 left-0 z-40 hidden w-62 lg:block">
@@ -344,7 +345,14 @@ function Notifications({ unread, onReadAll }: { unread: number; onReadAll: () =>
     document.addEventListener("mousedown", fn);
     return () => document.removeEventListener("mousedown", fn);
   }, []);
+  useEffect(() => {
+    if (!open) return;
+    const fn = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", fn);
+    return () => window.removeEventListener("keydown", fn);
+  }, [open]);
 
+  const items = (data?.notifications ?? []).slice(0, 10);
   const icons = { info: <Bell size={13} className="text-info" />, success: <CheckCheck size={13} className="text-success" />, warning: <Sparkles size={13} className="text-warning" /> };
   return (
     <div className="relative" ref={ref}>
@@ -356,14 +364,21 @@ function Notifications({ unread, onReadAll }: { unread: number; onReadAll: () =>
         {open && (
           <motion.div
             initial={{ opacity: 0, y: 6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.98 }} transition={{ duration: 0.13 }}
-            className="absolute right-0 z-40 mt-1.5 w-88 overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+            // No mobile ancorar no botão jogaria o painel (22rem) para fora da tela:
+            // ele fica preso à viewport e só volta a ser um popover a partir de sm.
+            className="fixed inset-x-3 top-16 z-40 overflow-hidden rounded-2xl border border-border bg-surface shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-1.5 sm:w-88"
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <p className="text-[13px] font-semibold">Notificações</p>
-              <button onClick={() => { onReadAll(); }} className="text-[12px] font-medium text-accent hover:underline">Marcar todas como lidas</button>
+              {unread > 0 && (
+                <button onClick={() => { onReadAll(); }} className="text-[12px] font-medium text-accent hover:underline">Marcar todas como lidas</button>
+              )}
             </div>
-            <div className="max-h-96 overflow-y-auto p-1.5">
-              {(data?.notifications ?? []).slice(0, 10).map((n) => (
+            <div className="max-h-[min(24rem,60dvh)] overflow-y-auto overscroll-contain p-1.5">
+              {items.length === 0 && (
+                <p className="px-3 py-8 text-center text-[12.5px] text-muted">Nenhuma notificação por aqui.</p>
+              )}
+              {items.map((n) => (
                 <div key={n.id} className={cn("flex gap-3 rounded-xl px-2.5 py-2.5 transition hover:bg-surface-2", !n.read && "bg-accent-soft/50")}>
                   <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-2">{icons[n.kind]}</span>
                   <div className="min-w-0">
@@ -407,6 +422,8 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
     return base.filter((i) => i.label.toLowerCase().includes(s));
   }, [q, data, router, openComposer, setTheme]);
 
+  useScrollLock(open);
+
   useEffect(() => {
     if (open) { setQ(""); setActive(0); setTimeout(() => inputRef.current?.focus(), 40); }
   }, [open]);
@@ -422,14 +439,14 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[14vh] backdrop-blur-[2px]"
+        <motion.div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[10dvh] backdrop-blur-[2px] sm:pt-[14dvh]"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
           <motion.div
             initial={{ scale: 0.97, y: -8, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.97, y: -8, opacity: 0 }}
             transition={{ type: "spring", stiffness: 400, damping: 32 }}
-            className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl" role="dialog" aria-label="Busca rápida"
+            className="flex max-h-[80dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl" role="dialog" aria-label="Busca rápida"
           >
-            <div className="flex items-center gap-2.5 border-b border-border px-4">
+            <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-4">
               <Search size={16} className="text-muted" />
               <input
                 ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
@@ -438,7 +455,7 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
               />
               <kbd className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted">ESC</kbd>
             </div>
-            <div className="max-h-80 overflow-y-auto p-1.5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))]">
               {items.length === 0 && <p className="px-3 py-6 text-center text-[13px] text-muted">Nenhum resultado para “{q}”.</p>}
               {items.map((item, i) => (
                 <button

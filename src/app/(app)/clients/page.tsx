@@ -183,7 +183,7 @@ function CreateModal({ open, onClose, onSaved }: { open: boolean; onClose: () =>
           <label className={labelCls}>Nome do cliente *</label>
           <input className={inputCls} required placeholder="Ex.: Café Alma" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className={labelCls}>Segmento</label>
             <input className={inputCls} placeholder="Gastronomia" value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
