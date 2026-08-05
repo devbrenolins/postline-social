@@ -280,6 +280,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ automation: row });
     }
 
+    if (body.action === "updateAutomation") {
+      const keywords = String(body.keywords ?? "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+      if (!body.id) return NextResponse.json({ error: "Informe a automação." }, { status: 400 });
+      if (!keywords.length || !body.response) return NextResponse.json({ error: "Preencha gatilhos e resposta." }, { status: 400 });
+
+      const [row] = await db
+        .update(directAutomations)
+        .set({
+          name: String(body.name ?? "").trim() || "Resposta automática",
+          triggerKeywords: keywords,
+          responseTemplate: String(body.response).trim(),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(directAutomations.id, String(body.id)), eq(directAutomations.workspaceId, wid), isNull(directAutomations.deletedAt)))
+        .returning();
+      if (!row) return NextResponse.json({ error: "Automação não encontrada." }, { status: 404 });
+      return NextResponse.json({ automation: row });
+    }
+
     if (body.action === "toggleAutomation") {
       await db.update(directAutomations).set({ active: Boolean(body.active), updatedAt: new Date() }).where(and(eq(directAutomations.id, body.id), eq(directAutomations.workspaceId, wid)));
       return NextResponse.json({ ok: true });

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, useScrollLock } from "@/components/ui";
 import type { Post, MediaItem, PlatformT } from "@/lib/types";
 import { useWorkspace } from "@/components/workspace-context";
+import { PostAutomation } from "@/components/post-automation";
 import { toast } from "sonner";
 
 /* --------------------------------- Context --------------------------------- */
@@ -351,6 +352,19 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
               <input id="first-comment" className={inputCls} placeholder="Hashtags extras ou CTA no primeiro comentário…" value={firstComment} onChange={(e) => setFirstComment(e.target.value)} disabled={!canInteract} />
             </div>
 
+            {/* Automação de direct — só depois que a publicação existe, porque a
+                regra é vinculada ao id dela. */}
+            {postId ? (
+              <PostAutomation postId={postId} />
+            ) : (
+              <div className="rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-3.5 py-3">
+                <p className="flex items-center gap-2 text-[12.5px] font-semibold"><Bot size={14} className="text-accent" /> Resposta automática no direct</p>
+                <p className="mt-1 text-[11.5px] leading-4 text-muted">
+                  Escreva a legenda ou salve como rascunho para liberar a configuração — a regra fica presa a esta publicação.
+                </p>
+              </div>
+            )}
+
             {/* Media */}
             <div>
               <div className="mb-2 flex items-center justify-between">
@@ -449,16 +463,6 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
           {editing && status !== "published" && (
             <Button variant="ghost" size="md" className="text-danger hover:bg-danger/10" onClick={remove}>
               <Trash2 size={14} /> Excluir
-            </Button>
-          )}
-          {postId && (
-            <Button
-              variant="ghost"
-              size="md"
-              onClick={() => { close(); router.push(`/studio?tab=direct&post=${postId}`); }}
-              title="Criar uma resposta automática no direct para quem comentar esta publicação"
-            >
-              <Bot size={14} /> Automação de direct
             </Button>
           )}
           <div className="ml-auto grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
