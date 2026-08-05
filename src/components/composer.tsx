@@ -12,7 +12,10 @@ import { useRouter } from "next/navigation";
 import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, useScrollLock } from "@/components/ui";
 import type { Post, MediaItem, PlatformT } from "@/lib/types";
 import { useWorkspace } from "@/components/workspace-context";
-import { PostAutomation } from "@/components/post-automation";
+import {
+  AutomationFields, EMPTY_AUTOMATION, draftFromAutomation, isDraftComplete, saveAutomationDraft,
+  type Automation, type AutomationDraft,
+} from "@/components/post-automation";
 import { toast } from "sonner";
 
 /* --------------------------------- Context --------------------------------- */
@@ -80,6 +83,10 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [busy, setBusy] = useState<null | "draft" | "schedule" | "publish">(null);
   const [preview, setPreview] = useState<PlatformT>("instagram");
+  // A automação vive no estado até a publicação existir: numa publicação nova
+  // não há id ao qual vincular a regra, e ela é gravada junto no submit.
+  const [automation, setAutomation] = useState<AutomationDraft>(EMPTY_AUTOMATION);
+  const [automationId, setAutomationId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const captionRef = useRef<HTMLTextAreaElement>(null);
@@ -93,6 +100,26 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
     setCaption(next);
     setHistVersion((v) => v + 1);
   }, []);
+
+  // Ao editar uma publicação existente, traz a automação já configurada.
+  useEffect(() => {
+    if (!postId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/posts/${postId}/automation`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { automations: Automation[] };
+        if (cancelled) return;
+        const found = data.automations[0] ?? null;
+        setAutomationId(found?.id ?? null);
+        setAutomation(draftFromAutomation(found));
+      } catch {
+        // Sem automação carregada o bloco simplesmente começa desligado.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [postId]);
 
   // Autosave (apenas em edição de rascunhos/agendados existentes)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -141,7 +168,20 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
         if (!res.ok) throw new Error(data.error);
         id = data.post.id;
       }
-      toast.success(target === "draft" ? "Rascunho salvo." : target === "schedule" ? "Publicação agendada." : "Publicado agora nas redes selecionadas.");
+      // A regra só pode ser gravada depois que a publicação tem id.
+      if (id) {
+        try {
+          await saveAutomationDraft(id, automation, automationId);
+        } catch (e) {
+          // A publicação já foi salva — avisa sem desfazer o que deu certo.
+          toast.error(e instanceof Error ? e.message : "A publicação foi salva, mas a automação não.");
+        }
+      }
+
+      toast.success(
+        (target === "draft" ? "Rascunho salvo." : target === "schedule" ? "Publicação agendada." : "Publicado agora nas redes selecionadas.") +
+        (isDraftComplete(automation) ? " Resposta automática ativada." : "")
+      );
       window.dispatchEvent(new CustomEvent("postline:posts-changed"));
       refetch();
       opts.onSaved?.();
@@ -352,18 +392,9 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
               <input id="first-comment" className={inputCls} placeholder="Hashtags extras ou CTA no primeiro comentário…" value={firstComment} onChange={(e) => setFirstComment(e.target.value)} disabled={!canInteract} />
             </div>
 
-            {/* Automação de direct — só depois que a publicação existe, porque a
-                regra é vinculada ao id dela. */}
-            {postId ? (
-              <PostAutomation postId={postId} />
-            ) : (
-              <div className="rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-3.5 py-3">
-                <p className="flex items-center gap-2 text-[12.5px] font-semibold"><Bot size={14} className="text-accent" /> Resposta automática no direct</p>
-                <p className="mt-1 text-[11.5px] leading-4 text-muted">
-                  Escreva a legenda ou salve como rascunho para liberar a configuração — a regra fica presa a esta publicação.
-                </p>
-              </div>
-            )}
+            {/* Automação de direct: configurável desde a criação. É gravada
+                junto com a publicação, no submit. */}
+            <AutomationFields value={automation} onChange={setAutomation} disabled={!canInteract} />
 
             {/* Media */}
             <div>
@@ -464,6 +495,13 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
             <Button variant="ghost" size="md" className="text-danger hover:bg-danger/10" onClick={remove}>
               <Trash2 size={14} /> Excluir
             </Button>
+          )}
+          {/* Confirmação visível de que uma mensagem vai sair sozinha em nome
+              do cliente — não pode depender de lembrar do que foi marcado acima. */}
+          {isDraftComplete(automation) && (
+            <span className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-[11.5px] font-medium text-accent">
+              <Bot size={13} /> Responde no direct quem comentar
+            </span>
           )}
           <div className="ml-auto grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
             {canInteract && (

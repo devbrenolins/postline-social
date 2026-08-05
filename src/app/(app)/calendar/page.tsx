@@ -465,8 +465,9 @@ function PostDetail({ post, onClose, onEdit, onPatch, clientName }: {
             )}
           </div>
 
-          <div className="mt-4 border-t border-border pt-4">
-            <PostAutomation postId={post.id} compact />
+          <div className="mt-5 border-t border-border pt-4">
+            <p className="mb-2.5 text-[12.5px] font-semibold">Automação desta publicação</p>
+            <PostAutomation postId={post.id} />
           </div>
         </div>
       </div>
