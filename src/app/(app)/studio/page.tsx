@@ -6,6 +6,7 @@ import {
   Paperclip, Plus, Radar, Sparkles, Trash2, TrendingUp, Video, WandSparkles, X,
 } from "lucide-react";
 import { Badge, Button, InlineError, Segmented, Switch, cn, inputCls, labelCls, useScrollLock } from "@/components/ui";
+import Link from "next/link";
 import { toast } from "sonner";
 
 type Tab = "script" | "creative" | "direct" | "intelligence";
@@ -15,14 +16,19 @@ type AutomationTarget = { id: string; caption: string; status: string; mediaUrls
 type Competitor = { id: string; name: string; handle: string; platform: string; lastCheckedAt: string | null };
 type ReferenceImage = { name: string; type: string; dataUrl?: string; mediaId?: string; previewUrl?: string };
 type CreativePlan = { copy: { headline: string; subheadline: string; cta: string }; palette: { accent: string }; layout: { zone: string; align: string } };
-type CreditBucket = { used: number; remaining: number; dailyCredits: number; dailyGenerations: number; generations: number; reserveTokens: number; tokensUsed: number; label: string };
+type CreditBucket = {
+  kind: "script" | "creative"; label: string;
+  dailyCredits: number; dailyGenerations: number;
+  used: number; remainingDaily: number; purchased: number; available: number;
+  generations: number; tokensUsed: number;
+};
 type StudioData = {
   status: { ai: boolean; image: boolean; meta: boolean; textModel: string; imageModel: string; imageProvider: string };
   automations: Automation[];
   automationTargets: AutomationTarget[];
   competitors: Competitor[];
   dailyTrend: { text: string; updatedAt: string } | null;
-  credits: { script: CreditBucket; creative: CreditBucket };
+  credits: { plan: { id: string; name: string }; script: CreditBucket; creative: CreditBucket };
 };
 
 /**
@@ -128,12 +134,29 @@ function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
   const fmtCredits = (value: number) => value.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 3 });
   const items = [{ name: "Roteiros", bucket: credits.script }, { name: "Criativos", bucket: credits.creative }];
   return <section id="creditos" className="scroll-mt-20 rounded-2xl border border-accent/25 bg-surface p-4 shadow-sm">
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Coins size={16} className="text-accent" /><h3 className="text-[13.5px] font-semibold">Créditos Postline de hoje</h3></div><Badge>Renovação diária</Badge></div>
-    <div className="grid gap-3 sm:grid-cols-2">{items.map(({ name, bucket }) => { const percent = Math.min(100, Math.round((bucket.used / bucket.dailyCredits) * 100)); return <div key={name} className="rounded-xl bg-surface-2/60 p-3">
-      <div className="flex items-center justify-between gap-2"><p className="text-[12px] font-semibold">{name}</p><span className="text-[11px] text-muted">{bucket.generations}/{bucket.dailyGenerations} gerações</span></div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div>
-      <div className="mt-1.5 flex justify-between text-[10.5px] text-muted"><span>{fmtCredits(bucket.used)} usados</span><span>{fmtCredits(bucket.remaining)} restantes</span></div>
-    </div>; })}</div>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2"><Coins size={16} className="text-accent" /><h3 className="text-[13.5px] font-semibold">Créditos Postline</h3></div>
+      <div className="flex items-center gap-2">
+        <Badge tone="accent">Plano {credits.plan.name}</Badge>
+        <Link href="/settings?tab=plano" className="text-[12px] font-medium text-accent hover:underline">Gerenciar</Link>
+      </div>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2">{items.map(({ name, bucket }) => {
+      const percent = bucket.dailyCredits > 0 ? Math.min(100, Math.round((bucket.used / bucket.dailyCredits) * 100)) : 100;
+      return <div key={name} className="rounded-xl bg-surface-2/60 p-3">
+        <div className="flex items-center justify-between gap-2"><p className="text-[12px] font-semibold">{name}</p><span className="text-[11px] text-muted">{bucket.generations}/{bucket.dailyGenerations} gerações</span></div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div>
+        <div className="mt-1.5 flex justify-between text-[10.5px] text-muted">
+          <span>{fmtCredits(bucket.used)} usados hoje</span>
+          <span>{fmtCredits(bucket.remainingDaily)} da franquia</span>
+        </div>
+        {bucket.purchased > 0 && (
+          <p className="mt-1.5 border-t border-border pt-1.5 text-[10.5px] text-accent">
+            + {fmtCredits(bucket.purchased)} créditos comprados (não expiram)
+          </p>
+        )}
+      </div>;
+    })}</div>
   </section>;
 }
 

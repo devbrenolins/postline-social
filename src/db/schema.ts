@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
   date,
+  numeric,
 } from "drizzle-orm/pg-core";
 
 /* ------------------------------------------------------------------ */
@@ -463,4 +464,58 @@ export const aiGenerations = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("ai_generations_workspace_idx").on(t.workspaceId), index("ai_generations_kind_idx").on(t.kind)]
+);
+
+/* ------------------------------------------------------------------ */
+/*  Planos e créditos                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Compras de pacotes de crédito.
+ *
+ * O checkout é simulado enquanto não há provedor de pagamento: a compra nasce
+ * `pending` e é confirmada pela própria aplicação. `provider` e `externalId`
+ * já existem para o dia em que um provedor real entrar, sem migração nova.
+ */
+export const creditPurchases = pgTable(
+  "credit_purchases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    packId: varchar("pack_id", { length: 64 }).notNull(),
+    kind: varchar("kind", { length: 24 }).notNull(),
+    credits: numeric("credits", { precision: 12, scale: 3 }).notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    currency: varchar("currency", { length: 8 }).notNull().default("BRL"),
+    status: varchar("status", { length: 24 }).notNull().default("pending"),
+    provider: varchar("provider", { length: 32 }).notNull().default("simulado"),
+    externalId: varchar("external_id", { length: 160 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+  },
+  (t) => [index("credit_purchases_workspace_idx").on(t.workspaceId)]
+);
+
+/**
+ * Razão de créditos avulsos: entradas positivas vêm de compra, negativas de
+ * consumo que passou do saldo diário do plano. O saldo é a soma das linhas —
+ * assim o histórico fica auditável em vez de virar um contador solto.
+ */
+export const creditLedger = pgTable(
+  "credit_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 24 }).notNull(),
+    amount: numeric("amount", { precision: 12, scale: 3 }).notNull(),
+    reason: varchar("reason", { length: 64 }).notNull(),
+    purchaseId: uuid("purchase_id").references(() => creditPurchases.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("credit_ledger_workspace_idx").on(t.workspaceId, t.kind)]
 );

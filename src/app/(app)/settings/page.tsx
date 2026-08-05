@@ -4,16 +4,18 @@ import React, { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import {
   User, Building2, Bell, Palette, Plug, KeyRound, ShieldCheck, Copy, Check, Plus, Trash2,
-  Sun, Moon, MonitorSmartphone, Globe,
+  Sun, Moon, MonitorSmartphone, Globe, CreditCard,
 } from "lucide-react";
 import { cn, Button, Badge, Switch, Avatar, inputCls, labelCls, PlatformChip, InlineError, timeAgo } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
+import { BillingPanel } from "@/components/billing-panel";
 import { toast } from "sonner";
 import { PLATFORM_META, type Platform } from "@/components/ui";
 
 const TABS = [
   { id: "profile", label: "Perfil", icon: User },
   { id: "workspace", label: "Workspace", icon: Building2 },
+  { id: "plano", label: "Plano e créditos", icon: CreditCard },
   { id: "appearance", label: "Aparência", icon: Palette },
   { id: "notifications", label: "Notificações", icon: Bell },
   { id: "integrations", label: "Integrações", icon: Plug },
@@ -25,6 +27,11 @@ type TabId = (typeof TABS)[number]["id"];
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<TabId>("profile");
+  // Permite /settings?tab=plano — usado pelo atalho "Gerenciar" no Studio.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (TABS.some((t) => t.id === requested)) setTab(requested as TabId);
+  }, []);
   return (
     <div className="grid grid-cols-1 gap-6 animate-fade-up lg:grid-cols-[210px_1fr]">
       <div className="flex gap-1 overflow-x-auto lg:sticky lg:top-19 lg:block lg:self-start">
@@ -41,6 +48,7 @@ export default function SettingsPage() {
       <div className="min-w-0 max-w-160">
         {tab === "profile" && <ProfileTab />}
         {tab === "workspace" && <WorkspaceTab />}
+        {tab === "plano" && <BillingPanel />}
         {tab === "appearance" && <AppearanceTab />}
         {tab === "notifications" && <NotificationsTab />}
         {tab === "integrations" && <IntegrationsTab />}

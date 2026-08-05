@@ -43,6 +43,13 @@
       "when": 1785902249148,
       "tag": "0005_broken_pyro",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785953663262,
+      "tag": "0006_absurd_king_cobra",
+      "breakpoints": true
     }
   ]
 }

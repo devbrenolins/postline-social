@@ -7,6 +7,7 @@ import { AiConfigurationError, aiConfigured, generateCreative, generateText, ima
 import { IMAGE_DIMENSIONS } from "@/lib/ai-types";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
+import { assertCreditAllowance, chargeOverflow, creditSummary, todayKey } from "@/lib/credits";
 
 // Um criativo leva de 15s a ~2min: a direção de arte no Gemini, a imagem no
 // provedor e a gravação no Storage. 300s é o teto da Vercel em todos os planos
@@ -19,15 +20,6 @@ function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro interno.";
   return NextResponse.json({ error: message }, { status: error instanceof AiConfigurationError ? 503 : 500 });
 }
-
-function todayKey() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bahia", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
-
-const CREDIT_LIMITS = {
-  script: { dailyCredits: 1, dailyGenerations: 20, reserveTokens: 2_500, label: "roteiros" },
-  creative: { dailyCredits: 2, dailyGenerations: 8, reserveTokens: 15_000, label: "criativos" },
-} as const;
 
 function uploadedReferenceImages(value: unknown): ReferenceImage[] {
   if (!Array.isArray(value)) return [];
@@ -62,25 +54,6 @@ async function resolveReferenceImages(value: unknown, workspaceId: string): Prom
   return result;
 }
 
-async function dailyCredits(workspaceId: string) {
-  const start = new Date(`${todayKey()}T00:00:00-03:00`);
-  const rows = await db.select({ kind: aiGenerations.kind, inputTokens: aiGenerations.inputTokens, outputTokens: aiGenerations.outputTokens }).from(aiGenerations).where(and(eq(aiGenerations.workspaceId, workspaceId), inArray(aiGenerations.kind, ["script", "creative"]), gte(aiGenerations.createdAt, start)));
-  const summarize = (kind: "script" | "creative") => {
-    const matching = rows.filter((row) => row.kind === kind);
-    const tokensUsed = matching.reduce((sum, row) => sum + row.inputTokens + row.outputTokens, 0);
-    const used = tokensUsed / 100_000;
-    const limit = CREDIT_LIMITS[kind];
-    return { used, remaining: Math.max(0, limit.dailyCredits - used), tokensUsed, generations: matching.length, ...limit };
-  };
-  return { script: summarize("script"), creative: summarize("creative") };
-}
-
-async function assertCreditAllowance(workspaceId: string, kind: "script" | "creative") {
-  const credits = await dailyCredits(workspaceId);
-  const bucket = credits[kind];
-  if (bucket.generations >= bucket.dailyGenerations) throw new Error(`Limite diário de ${bucket.dailyGenerations} ${bucket.label} atingido. O saldo é renovado à meia-noite.`);
-  if (bucket.remaining * 100_000 < bucket.reserveTokens) throw new Error(`Saldo diário insuficiente para gerar. Restam ${bucket.remaining.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} créditos Postline.`);
-}
 
 export async function GET() {
   const user = await getSessionUser();
@@ -92,7 +65,7 @@ export async function GET() {
     db.select().from(competitors).where(and(eq(competitors.workspaceId, wid), isNull(competitors.deletedAt))).orderBy(desc(competitors.createdAt)),
     db.select().from(aiGenerations).where(eq(aiGenerations.workspaceId, wid)).orderBy(desc(aiGenerations.createdAt)).limit(12),
     db.select().from(aiGenerations).where(and(eq(aiGenerations.workspaceId, wid), eq(aiGenerations.kind, dailyKind))).orderBy(desc(aiGenerations.createdAt)).limit(1),
-    dailyCredits(wid),
+    creditSummary(wid),
     // Publicações que podem receber uma automação de comentário → direct.
     db
       .select({ id: posts.id, caption: posts.caption, status: posts.status, mediaUrls: posts.mediaUrls, scheduledAt: posts.scheduledAt, publishedAt: posts.publishedAt })
@@ -139,6 +112,7 @@ export async function POST(req: NextRequest) {
         references
       );
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "script", prompt: input, resultText: result.text, model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
+      await chargeOverflow(wid, "script", (result.usage.inputTokens + result.usage.outputTokens) / 100_000);
       return NextResponse.json(result);
     }
 
@@ -165,6 +139,7 @@ export async function POST(req: NextRequest) {
         ? [result.plan.copy.headline, result.plan.copy.subheadline, result.plan.copy.cta].filter(Boolean).join(" · ")
         : "Criativo gerado";
       await db.insert(aiGenerations).values({ workspaceId: wid, userId: user.id, kind: "creative", prompt: brief, resultText, model: result.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
+      await chargeOverflow(wid, "creative", (result.usage.inputTokens + result.usage.outputTokens) / 100_000);
 
       // O provedor devolve a imagem em base64 (JPEG no FLUX, PNG no SDXL/Gemini).
       // Converte para JPEG (resize/EXIF) e salva no Storage público + biblioteca, para o
