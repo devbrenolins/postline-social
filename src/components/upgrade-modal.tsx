@@ -18,12 +18,18 @@ type Status = {
   blocked: boolean;
 };
 
-/** Só volta a aparecer no dia seguinte — insistir a cada navegação irrita. */
+/**
+ * Dispensa válida só para a sessão atual.
+ *
+ * `sessionStorage` e não `localStorage`: fechar o modal cala ele enquanto a
+ * pessoa está usando o app, mas na próxima vez que ela entrar no site a oferta
+ * aparece de novo.
+ */
 const DISMISS_KEY = "postline:upgrade-dismissed";
 
-function dismissedToday() {
+function dismissedThisSession() {
   try {
-    return localStorage.getItem(DISMISS_KEY) === new Date().toDateString();
+    return sessionStorage.getItem(DISMISS_KEY) === "1";
   } catch {
     return false;
   }
@@ -31,7 +37,7 @@ function dismissedToday() {
 
 function markDismissed() {
   try {
-    localStorage.setItem(DISMISS_KEY, new Date().toDateString());
+    sessionStorage.setItem(DISMISS_KEY, "1");
   } catch {
     // Navegação anônima: sem persistência, reaparece — aceitável.
   }
@@ -57,9 +63,12 @@ export function UpgradeModal() {
       const data = (await res.json()) as Status;
       setStatus(data);
 
+      // Aparece em toda entrada enquanto houver o que vender: durante todo o
+      // teste, com saldo baixo, ou com o teste expirado. Só fica de fora quem
+      // já assinou e está com saldo saudável.
       const urgent = data.trial.expired;
-      const nudge = (data.trial.isTrial && data.trial.daysLeft <= 3) || data.lowBalance;
-      if (urgent || (nudge && !dismissedToday())) {
+      const sellable = data.trial.isTrial || data.lowBalance;
+      if (urgent || (sellable && !dismissedThisSession())) {
         const billing = await fetch("/api/billing", { cache: "no-store" });
         if (billing.ok) setPlans(((await billing.json()) as { plans: Plan[] }).plans);
         setOpen(true);
@@ -101,19 +110,33 @@ export function UpgradeModal() {
 
   if (!status) return null;
 
+  const urgentTrial = status.trial.isTrial && status.trial.daysLeft <= 3;
+
   const headline = blocking
     ? "Seu teste terminou"
     : status.trial.isTrial
       ? status.trial.daysLeft === 0
-        ? "Último dia de teste"
-        : `Faltam ${status.trial.daysLeft} ${status.trial.daysLeft === 1 ? "dia" : "dias"} de teste`
+        ? "Hoje é o último dia do seu teste"
+        : urgentTrial
+          ? `Seu teste acaba em ${status.trial.daysLeft} ${status.trial.daysLeft === 1 ? "dia" : "dias"}`
+          : "Publique em 6 redes sem sair daqui"
       : "Seu saldo está acabando";
 
   const subline = blocking
-    ? "Escolha um plano para voltar a publicar, criar com IA e responder no direct. Seu conteúdo continua salvo."
+    ? "Escolha um plano para voltar a publicar, criar com IA e responder no direct. Tudo que você já criou continua salvo."
     : status.trial.isTrial
-      ? "Assine agora e continue sem interrupção — tudo que você já criou permanece."
-      : "Assine um plano maior ou compre créditos avulsos para continuar gerando hoje.";
+      ? urgentTrial
+        ? "Garanta seu plano antes do fim e siga sem interrupção — seus posts, clientes e automações continuam exatamente como estão."
+        : "Roteiros e criativos com IA, agendamento, relatórios e resposta automática no direct. Assine e continue com tudo quando o teste acabar."
+      : "Compre créditos avulsos ou suba de plano para voltar a gerar agora.";
+
+  /** Argumentos curtos, acima dos preços — quem não conhece o produto decide aqui. */
+  const valueProps = [
+    "Agende e publique em 6 redes",
+    "Roteiros e criativos com IA",
+    "Responde no direct automaticamente",
+    "Relatórios por cliente",
+  ];
 
   const sellable = plans.filter((p) => p.id !== "trial");
 
@@ -147,6 +170,20 @@ export function UpgradeModal() {
             </span>
             <h2 className="text-[20px] font-semibold tracking-tight sm:text-[23px]">{headline}</h2>
             <p className="mx-auto mt-1.5 max-w-lg text-[13.5px] leading-6 text-muted">{subline}</p>
+
+            <ul className="mx-auto mt-4 flex max-w-xl flex-wrap justify-center gap-x-4 gap-y-1.5">
+              {valueProps.map((v) => (
+                <li key={v} className="flex items-center gap-1.5 text-[12px] text-foreground/80">
+                  <Check size={12} className="shrink-0 text-success" /> {v}
+                </li>
+              ))}
+            </ul>
+
+            {status.trial.isTrial && !blocking && (
+              <p className="mt-3 text-[11.5px] text-muted">
+                Assinando agora, você não perde nada do que já configurou.
+              </p>
+            )}
           </div>
 
           <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
