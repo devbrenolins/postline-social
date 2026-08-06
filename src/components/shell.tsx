@@ -31,6 +31,7 @@ const NAV = [
   { href: "/instagram", label: "Feed do Instagram", icon: Aperture },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { section: "Gestão" },
+  { href: "/planos", label: "Planos e créditos", icon: Coins },
   { href: "/clients", label: "Clientes", icon: Briefcase },
   { href: "/team", label: "Equipe", icon: Users },
 ];
@@ -45,6 +46,7 @@ const TITLES: Record<string, string> = {
   "/analytics": "Analytics",
   "/clients": "Clientes",
   "/team": "Equipe",
+  "/planos": "Planos e créditos",
   "/settings": "Configurações",
 };
 

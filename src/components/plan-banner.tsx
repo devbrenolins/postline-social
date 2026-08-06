@@ -120,7 +120,7 @@ function Bar({ tone, icon, text, cta }: {
           {icon} {text}
         </span>
         <Link
-          href="/settings?tab=plano"
+          href="/planos"
           className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-lg bg-current/12 px-2.5 py-1 text-[12px] font-semibold transition hover:bg-current/20"
         >
           <Sparkles size={12} /> {cta} <ArrowRight size={12} />

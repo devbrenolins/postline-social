@@ -101,13 +101,13 @@ function LimitReached({ message }: { message: string }) {
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Link
-          href="/settings?tab=plano"
+          href="/planos"
           className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-accent-strong"
         >
           <Sparkles size={13} /> Ver planos
         </Link>
         <Link
-          href="/settings?tab=plano"
+          href="/planos"
           className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border bg-surface px-3.5 text-[12.5px] font-medium transition hover:bg-surface-2"
         >
           <Coins size={13} /> Comprar créditos avulsos
@@ -181,7 +181,7 @@ function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
       <div className="flex items-center gap-2"><Coins size={16} className="text-accent" /><h3 className="text-[13.5px] font-semibold">Créditos Postline</h3></div>
       <div className="flex items-center gap-2">
         <Badge tone="accent">Plano {credits.plan.name}</Badge>
-        <Link href="/settings?tab=plano" className="text-[12px] font-medium text-accent hover:underline">Gerenciar</Link>
+        <Link href="/planos" className="text-[12px] font-medium text-accent hover:underline">Gerenciar</Link>
       </div>
     </div>
     <div className="grid gap-3 sm:grid-cols-2">{items.map(({ name, bucket }) => {
@@ -201,7 +201,7 @@ function CreditOverview({ credits }: { credits: StudioData["credits"] }) {
           </p>
         )}
         {(empty || low) && (
-          <Link href="/settings?tab=plano" className={cn("mt-2 flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition", empty ? "bg-danger/15 text-danger hover:bg-danger/25" : "bg-warning/15 text-warning hover:bg-warning/25")}>
+          <Link href="/planos" className={cn("mt-2 flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition", empty ? "bg-danger/15 text-danger hover:bg-danger/25" : "bg-warning/15 text-warning hover:bg-warning/25")}>
             <Sparkles size={12} /> {empty ? `Comprar créditos de ${name.toLowerCase()}` : "Saldo acabando — reabastecer"}
           </Link>
         )}

@@ -4,18 +4,16 @@ import React, { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import {
   User, Building2, Bell, Palette, Plug, KeyRound, ShieldCheck, Copy, Check, Plus, Trash2,
-  Sun, Moon, MonitorSmartphone, Globe, CreditCard,
+  Sun, Moon, MonitorSmartphone, Globe,
 } from "lucide-react";
 import { cn, Button, Badge, Switch, Avatar, inputCls, labelCls, PlatformChip, InlineError, timeAgo } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
-import { BillingPanel } from "@/components/billing-panel";
 import { toast } from "sonner";
 import { PLATFORM_META, type Platform } from "@/components/ui";
 
 const TABS = [
   { id: "profile", label: "Perfil", icon: User },
   { id: "workspace", label: "Workspace", icon: Building2 },
-  { id: "plano", label: "Plano e créditos", icon: CreditCard },
   { id: "appearance", label: "Aparência", icon: Palette },
   { id: "notifications", label: "Notificações", icon: Bell },
   { id: "integrations", label: "Integrações", icon: Plug },
@@ -27,7 +25,7 @@ type TabId = (typeof TABS)[number]["id"];
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<TabId>("profile");
-  // Permite /settings?tab=plano — usado pelo atalho "Gerenciar" no Studio.
+  // Permite abrir direto numa aba: /settings?tab=integrations, por exemplo.
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
     if (TABS.some((t) => t.id === requested)) setTab(requested as TabId);
@@ -48,7 +46,6 @@ export default function SettingsPage() {
       <div className="min-w-0 max-w-160">
         {tab === "profile" && <ProfileTab />}
         {tab === "workspace" && <WorkspaceTab />}
-        {tab === "plano" && <BillingPanel />}
         {tab === "appearance" && <AppearanceTab />}
         {tab === "notifications" && <NotificationsTab />}
         {tab === "integrations" && <IntegrationsTab />}
