@@ -23,7 +23,7 @@ export default async function Home() {
 
   return (
     <div className="min-h-dvh bg-background">
-      <header className="border-b border-border bg-surface">
+      <header className="border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-16 max-w-5xl items-center gap-2.5 px-5">
           <Logo size={28} />
           <span className="text-[15px] font-semibold tracking-tight">Postline</span>
@@ -77,7 +77,7 @@ export default async function Home() {
       </main>
 
       <footer className="border-t border-border bg-surface">
-        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-5 py-6 text-[12.5px] text-muted sm:flex-row sm:items-center">
+        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-5 pt-6 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] text-[12.5px] text-muted sm:flex-row sm:items-center">
           <span>© {new Date().getFullYear()} Postline</span>
           <nav className="flex flex-wrap gap-x-4 gap-y-1 sm:ml-auto">
             <Link href="/privacidade" className="hover:text-foreground">Privacidade</Link>

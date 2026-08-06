@@ -136,7 +136,10 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-dvh bg-background">
       {/* ------------------------------------------------ Form side */}
-      <div className="flex w-full flex-col px-6 py-8 sm:px-12 lg:w-[46%] lg:px-16 xl:px-24">
+      {/* O app roda em PWA com `viewport-fit: cover` e barra de status translúcida:
+          sem os insets de área segura a logo fica embaixo do notch/ilha dinâmica
+          e o rodapé embaixo da barra de gestos. */}
+      <div className="flex w-full flex-col px-6 pt-[calc(2rem_+_env(safe-area-inset-top))] pb-[calc(2rem_+_env(safe-area-inset-bottom))] sm:px-12 lg:w-[46%] lg:px-16 xl:px-24">
         <div className="flex items-center gap-2.5">
           <Logo size={32} />
           <span className="text-[17px] font-semibold tracking-tight">Postline</span>

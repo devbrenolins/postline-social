@@ -9,7 +9,7 @@ import { Logo } from "@/components/ui";
 export default function LegalLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-background">
-      <header className="border-b border-border bg-surface">
+      <header className="border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-16 max-w-3xl items-center gap-2.5 px-5">
           <Link href="/" className="flex items-center gap-2.5">
             <Logo size={28} />
@@ -24,7 +24,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
       <main className="mx-auto max-w-3xl px-5 py-10 pb-20">{children}</main>
 
       <footer className="border-t border-border bg-surface">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2 px-5 py-6 text-[12.5px] text-muted sm:flex-row sm:items-center">
+        <div className="mx-auto flex max-w-3xl flex-col gap-2 px-5 pt-6 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] text-[12.5px] text-muted sm:flex-row sm:items-center">
           <span>© {new Date().getFullYear()} Postline</span>
           <nav className="flex flex-wrap gap-x-4 gap-y-1 sm:ml-auto">
             <Link href="/privacidade" className="hover:text-foreground">Privacidade</Link>
