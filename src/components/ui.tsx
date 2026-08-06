@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X as CloseIcon, Loader2, AlertCircle } from "lucide-react";
 
@@ -203,6 +204,66 @@ export function useScrollLock(active: boolean) {
   }, [active]);
 }
 
+/** Padding do backdrop: respeita notch/barra inferior e garante que o painel
+ *  nunca encoste nas bordas do aparelho. */
+const OVERLAY_PAD =
+  "max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) " +
+  "max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left))";
+
+/**
+ * Camada base de todo diálogo do app.
+ *
+ * Vai para um portal no `document.body` de propósito: dentro da árvore da página
+ * qualquer ancestral com transform, filter ou `contain` passa a ser o containing
+ * block do `position: fixed`, e o backdrop encolhe para o retângulo desse
+ * ancestral em vez de cobrir a viewport. No portal isso não acontece nunca.
+ *
+ * O painel é sempre centralizado e limitado a `max-h-full`, então ele se adapta
+ * sozinho à altura real do dispositivo (inclusive com o teclado aberto, via dvh).
+ */
+export function Overlay({ open, onClose, zIndex = 50, align = "center", children }: {
+  open: boolean;
+  onClose?: () => void;
+  zIndex?: number;
+  align?: "center" | "top";
+  children: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  useScrollLock(open);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className={cn(
+            "fixed inset-0 flex justify-center overflow-hidden bg-black/55 backdrop-blur-[6px]",
+            align === "center" ? "items-center" : "items-start"
+          )}
+          style={{
+            zIndex,
+            padding: OVERLAY_PAD,
+            ...(align === "top" ? { paddingTop: "max(9dvh, env(safe-area-inset-top))" } : null),
+          }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
+          onMouseDown={onClose ? (e) => { if (e.target === e.currentTarget) onClose(); } : undefined}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body
+  );
+}
+
+/** Classes do painel branco de um diálogo — centralizado e nunca maior que a tela. */
+export const panelCls =
+  "relative flex max-h-full w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl";
+
 export function Modal({ open, onClose, title, children, width = "max-w-lg", subtitle }: {
   open: boolean; onClose: () => void; title?: string; subtitle?: string; children: React.ReactNode; width?: string;
 }) {
@@ -211,8 +272,6 @@ export function Modal({ open, onClose, title, children, width = "max-w-lg", subt
   // Mantém o listener estável mesmo quando onClose é uma arrow inline.
   const closeRef = useRef(onClose);
   useEffect(() => { closeRef.current = onClose; }, [onClose]);
-
-  useScrollLock(open);
 
   useEffect(() => {
     if (!open) return;
@@ -234,56 +293,44 @@ export function Modal({ open, onClose, title, children, width = "max-w-lg", subt
   }, [open]);
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-        >
-          <motion.div
-            ref={panelRef}
-            role="dialog" aria-modal="true"
-            aria-labelledby={title !== undefined ? titleId : undefined}
-            aria-label={title === undefined ? "Detalhes" : undefined}
-            className={cn(
-              "relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl",
-              "sm:max-h-[88dvh] sm:rounded-2xl",
-              width
-            )}
-            initial={{ y: 24, opacity: 0, scale: 0.98 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 16, opacity: 0, scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 380, damping: 34 }}
-          >
-            {title !== undefined ? (
-              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
-                <div className="min-w-0">
-                  <h2 id={titleId} className="truncate text-[15px] font-semibold">{title}</h2>
-                  {subtitle && <p className="mt-0.5 truncate text-[12.5px] text-muted">{subtitle}</p>}
-                </div>
-                <button onClick={onClose} className="-mr-1 shrink-0 rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground" aria-label="Fechar">
-                  <CloseIcon size={16} />
-                </button>
-              </div>
-            ) : (
-              // Sem cabeçalho ainda precisa de uma saída visível — sobretudo no mobile,
-              // onde o sheet cobre quase todo o backdrop e não há tecla Esc.
-              <button
-                onClick={onClose}
-                className="absolute right-3 top-3 z-10 rounded-lg bg-surface/85 p-1.5 text-muted shadow-sm backdrop-blur transition hover:bg-surface-2 hover:text-foreground"
-                aria-label="Fechar"
-              >
-                <CloseIcon size={16} />
-              </button>
-            )}
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
-              {children}
+    <Overlay open={open} onClose={onClose}>
+      <motion.div
+        ref={panelRef}
+        role="dialog" aria-modal="true"
+        aria-labelledby={title !== undefined ? titleId : undefined}
+        aria-label={title === undefined ? "Detalhes" : undefined}
+        className={cn(panelCls, width)}
+        initial={{ y: 16, opacity: 0, scale: 0.98 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 10, opacity: 0, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+      >
+        {title !== undefined ? (
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
+            <div className="min-w-0">
+              <h2 id={titleId} className="truncate text-[15px] font-semibold">{title}</h2>
+              {subtitle && <p className="mt-0.5 truncate text-[12.5px] text-muted">{subtitle}</p>}
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+            <button onClick={onClose} className="-mr-1 shrink-0 rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground" aria-label="Fechar">
+              <CloseIcon size={16} />
+            </button>
+          </div>
+        ) : (
+          // Sem cabeçalho ainda precisa de uma saída visível — sobretudo no mobile,
+          // onde o painel cobre quase todo o backdrop e não há tecla Esc.
+          <button
+            onClick={onClose}
+            className="absolute right-3 top-3 z-10 rounded-lg bg-surface/85 p-1.5 text-muted shadow-sm backdrop-blur transition hover:bg-surface-2 hover:text-foreground"
+            aria-label="Fechar"
+          >
+            <CloseIcon size={16} />
+          </button>
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {children}
+        </div>
+      </motion.div>
+    </Overlay>
   );
 }
 

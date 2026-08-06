@@ -100,8 +100,11 @@ body {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* `backwards` (e não `both`): depois da animação o elemento volta a não ter
+   transform. Um transform residual — mesmo translateY(0) — vira containing block
+   e prenderia qualquer `position: fixed` filho (modais) dentro da página. */
 .animate-fade-up {
-  animation: fadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 @keyframes shimmer {

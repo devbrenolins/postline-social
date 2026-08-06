@@ -11,7 +11,7 @@ import {
   UserRound, MonitorSmartphone, CornerDownLeft, Command as CommandIcon,
   BrainCircuit, Coins, Aperture,
 } from "lucide-react";
-import { cn, Logo, Avatar, Dropdown, Button, timeAgo, useScrollLock } from "@/components/ui";
+import { cn, Logo, Avatar, Dropdown, Button, timeAgo, useScrollLock, Overlay, panelCls } from "@/components/ui";
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
 import { ComposerProvider, useComposer, ComposerModal } from "@/components/composer";
 import { PlanBanner } from "@/components/plan-banner";
@@ -92,7 +92,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       <AnimatePresence>
         {open && (
           <>
-            <motion.div className="fixed inset-0 z-40 bg-black/40 lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+            <motion.div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[3px] lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
             <motion.div
               className="fixed inset-y-0 left-0 z-50 w-70 lg:hidden"
               initial={{ x: -290 }} animate={{ x: 0 }} exit={{ x: -290 }}
@@ -426,8 +426,6 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
     return base.filter((i) => i.label.toLowerCase().includes(s));
   }, [q, data, router, openComposer, setTheme]);
 
-  useScrollLock(open);
-
   useEffect(() => {
     if (open) { setQ(""); setActive(0); setTimeout(() => inputRef.current?.focus(), 40); }
   }, [open]);
@@ -450,43 +448,38 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
   }
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[10dvh] backdrop-blur-[2px] sm:pt-[14dvh]"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-          <motion.div
-            initial={{ scale: 0.97, y: -8, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.97, y: -8, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 400, damping: 32 }}
-            className="flex max-h-[80dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl" role="dialog" aria-label="Busca rápida"
-          >
-            <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-4">
-              <Search size={16} className="text-muted" />
-              <input
-                ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
-                placeholder="Buscar páginas, ações, clientes…"
-                className="h-12 flex-1 bg-transparent text-[14px] outline-none placeholder:text-muted/70"
-              />
-              <kbd className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted">ESC</kbd>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))]">
-              {items.length === 0 && <p className="px-3 py-6 text-center text-[13px] text-muted">Nenhum resultado para “{q}”.</p>}
-              {items.map((item, i) => (
-                <button
-                  key={item.label + i}
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => { item.run(); onClose(); }}
-                  className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px]", active === i ? "bg-accent-soft text-accent" : "text-foreground")}
-                >
-                  <span className={cn("flex h-6 w-6 items-center justify-center rounded-md", active === i ? "bg-accent/15" : "bg-surface-2 text-muted")}>{item.icon}</span>
-                  <span className="flex-1">{item.label}</span>
-                  <span className="text-[11px] text-muted">{item.hint}</span>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <Overlay open={open} onClose={onClose} align="top">
+      <motion.div
+        initial={{ scale: 0.97, y: -8, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.97, y: -8, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 400, damping: 32 }}
+        className={cn(panelCls, "max-w-lg")} role="dialog" aria-modal="true" aria-label="Busca rápida"
+      >
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-4">
+          <Search size={16} className="text-muted" />
+          <input
+            ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
+            placeholder="Buscar páginas, ações, clientes…"
+            className="h-12 flex-1 bg-transparent text-[14px] outline-none placeholder:text-muted/70"
+          />
+          <kbd className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted">ESC</kbd>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
+          {items.length === 0 && <p className="px-3 py-6 text-center text-[13px] text-muted">Nenhum resultado para “{q}”.</p>}
+          {items.map((item, i) => (
+            <button
+              key={item.label + i}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => { item.run(); onClose(); }}
+              className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13.5px]", active === i ? "bg-accent-soft text-accent" : "text-foreground")}
+            >
+              <span className={cn("flex h-6 w-6 items-center justify-center rounded-md", active === i ? "bg-accent/15" : "bg-surface-2 text-muted")}>{item.icon}</span>
+              <span className="flex-1">{item.label}</span>
+              <span className="text-[11px] text-muted">{item.hint}</span>
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </Overlay>
   );
 }
 

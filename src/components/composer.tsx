@@ -9,7 +9,7 @@ import {
   ThumbsUp, Music2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, useScrollLock } from "@/components/ui";
+import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, Overlay, panelCls } from "@/components/ui";
 import type { Post, MediaItem, PlatformT } from "@/lib/types";
 import { useWorkspace } from "@/components/workspace-context";
 import {
@@ -51,10 +51,12 @@ const HASHTAG_BANK = ["#socialmedia", "#marketingdigital", "#conteudo", "#brandi
 
 export function ComposerModal() {
   const { open: isOpen, opts, close } = useContext(ComposerStateContext);
+  // A presença é controlada pelo Overlay: ele mantém a árvore anterior montada
+  // durante a saída, então o editor ainda anima ao fechar.
   return (
-    <AnimatePresence>
+    <Overlay open={isOpen}>
       {isOpen && <Editor key={opts.post?.id ?? opts.date ?? "new"} opts={opts} close={close} />}
-    </AnimatePresence>
+    </Overlay>
   );
 }
 
@@ -233,301 +235,297 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
   const previewTabs: PlatformT[] = networks.length ? networks : ["instagram"];
   const activePreview: PlatformT = previewTabs.includes(preview) ? preview : previewTabs[0];
 
-  useScrollLock(true);
-
   return (
-    <motion.div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 backdrop-blur-[2px] sm:items-center sm:p-5"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Editor de publicação">
-      <motion.div
-        initial={{ y: 30, opacity: 0, scale: 0.985 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 20, opacity: 0, scale: 0.985 }}
-        transition={{ type: "spring", stiffness: 360, damping: 34 }}
-        className="flex max-h-[94dvh] w-full max-w-245 flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl sm:rounded-2xl"
-      >
-        {/* Header */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3.5">
-          <h2 className="text-[14.5px] font-semibold">{editing ? "Editar publicação" : "Nova publicação"}</h2>
-          <Badge tone={POST_STATUS[status]?.tone}>{POST_STATUS[status]?.label}</Badge>
-          {editing && <span className="text-[11.5px] text-muted">v{editing.version}</span>}
-          <div className="ml-auto flex items-center gap-2.5">
-            {saveState !== "idle" && canInteract && (
-              <span className="hidden items-center gap-1.5 text-[11.5px] text-muted sm:flex">
-                {saveState === "saving" ? <><Loader2 size={11} className="animate-spin" /> Salvando…</> : <><Check size={11} className="text-success" /> Salvo automaticamente</>}
-              </span>
-            )}
-            <button onClick={close} className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground" aria-label="Fechar editor">
-              <X size={17} />
-            </button>
+    <motion.div
+      role="dialog" aria-modal="true" aria-label="Editor de publicação"
+      initial={{ y: 18, opacity: 0, scale: 0.985 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 12, opacity: 0, scale: 0.985 }}
+      transition={{ type: "spring", stiffness: 360, damping: 34 }}
+      className={cn(panelCls, "max-w-245")}
+    >
+    {/* Header */}
+    <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3.5">
+      <h2 className="text-[14.5px] font-semibold">{editing ? "Editar publicação" : "Nova publicação"}</h2>
+      <Badge tone={POST_STATUS[status]?.tone}>{POST_STATUS[status]?.label}</Badge>
+      {editing && <span className="text-[11.5px] text-muted">v{editing.version}</span>}
+      <div className="ml-auto flex items-center gap-2.5">
+        {saveState !== "idle" && canInteract && (
+          <span className="hidden items-center gap-1.5 text-[11.5px] text-muted sm:flex">
+            {saveState === "saving" ? <><Loader2 size={11} className="animate-spin" /> Salvando…</> : <><Check size={11} className="text-success" /> Salvo automaticamente</>}
+          </span>
+        )}
+        <button onClick={close} className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground" aria-label="Fechar editor">
+          <X size={17} />
+        </button>
+      </div>
+    </div>
+
+    <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[1fr_330px]">
+      {/* ------------------------------- Form ------------------------------ */}
+      <div className="space-y-5 overflow-y-auto px-5 py-5">
+        {/* Client */}
+        <div>
+          <label className={labelCls}>Cliente / marca</label>
+          <select className={inputCls} value={clientId} onChange={(e) => setClientId(e.target.value)} disabled={!canInteract}>
+            <option value="">Sem cliente</option>
+            {(ws?.clients ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {/* Networks */}
+        <div>
+          <label className={labelCls}>Publicar em</label>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Redes sociais">
+            {(Object.keys(PLATFORM_META) as PlatformT[]).map((p) => {
+              const active = networks.includes(p);
+              return (
+                <button
+                  key={p} type="button" disabled={!canInteract} aria-pressed={active}
+                  onClick={() => setNetworks((ns) => active ? ns.filter((n) => n !== p) : [...ns, p])}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl border px-3 py-2 text-[12.5px] font-medium transition-all duration-150",
+                    active ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:border-border-strong hover:text-foreground"
+                  )}
+                >
+                  <span style={{ color: active ? PLATFORM_META[p].color : undefined }}><PlatformIcon platform={p} size={14} /></span>
+                  {PLATFORM_META[p].name}
+                  {active && <Check size={12} />}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[1fr_330px]">
-          {/* ------------------------------- Form ------------------------------ */}
-          <div className="space-y-5 overflow-y-auto px-5 py-5">
-            {/* Client */}
-            <div>
-              <label className={labelCls}>Cliente / marca</label>
-              <select className={inputCls} value={clientId} onChange={(e) => setClientId(e.target.value)} disabled={!canInteract}>
-                <option value="">Sem cliente</option>
-                {(ws?.clients ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-
-            {/* Networks */}
-            <div>
-              <label className={labelCls}>Publicar em</label>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Redes sociais">
-                {(Object.keys(PLATFORM_META) as PlatformT[]).map((p) => {
-                  const active = networks.includes(p);
-                  return (
-                    <button
-                      key={p} type="button" disabled={!canInteract} aria-pressed={active}
-                      onClick={() => setNetworks((ns) => active ? ns.filter((n) => n !== p) : [...ns, p])}
-                      className={cn(
-                        "flex items-center gap-2 rounded-xl border px-3 py-2 text-[12.5px] font-medium transition-all duration-150",
-                        active ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:border-border-strong hover:text-foreground"
-                      )}
-                    >
-                      <span style={{ color: active ? PLATFORM_META[p].color : undefined }}><PlatformIcon platform={p} size={14} /></span>
-                      {PLATFORM_META[p].name}
-                      {active && <Check size={12} />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Format */}
-            <div>
-              <label className={labelCls}>Formato</label>
-              <div className="flex flex-wrap gap-2">
-                {FORMATS.map((f) => (
-                  <button
-                    key={f.value} type="button" disabled={!canInteract}
-                    onClick={() => setFormat(f.value)}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-medium transition-all",
-                      format === f.value ? "border-foreground bg-foreground text-background" : "border-border text-muted hover:text-foreground"
-                    )}
-                  >
-                    <f.icon size={13} /> {f.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Caption */}
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <label className={cn(labelCls, "mb-0")} htmlFor="caption">Legenda</label>
-                {canInteract && (
-                  <div className="flex items-center gap-1">
-                    <button type="button" className="rounded-md p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground disabled:opacity-30"
-                      disabled={undoStack.current.length === 0 && histVersion >= 0 && undoStack.current.length === 0}
-                      onClick={() => { if (undoStack.current.length) { redoStack.current.push(caption); const prev = undoStack.current.pop()!; setCaption(prev); setHistVersion(v => v + 1); } }}
-                      aria-label="Desfazer" title="Desfazer">
-                      <Undo2 size={14} />
-                    </button>
-                    <button type="button" className="rounded-md p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground disabled:opacity-30"
-                      disabled={redoStack.current.length === 0}
-                      onClick={() => { if (redoStack.current.length) { undoStack.current.push(caption); const next = redoStack.current.pop()!; setCaption(next); setHistVersion(v => v + 1); } }}
-                      aria-label="Refazer" title="Refazer">
-                      <Redo2 size={14} />
-                    </button>
-                  </div>
+        {/* Format */}
+        <div>
+          <label className={labelCls}>Formato</label>
+          <div className="flex flex-wrap gap-2">
+            {FORMATS.map((f) => (
+              <button
+                key={f.value} type="button" disabled={!canInteract}
+                onClick={() => setFormat(f.value)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-medium transition-all",
+                  format === f.value ? "border-foreground bg-foreground text-background" : "border-border text-muted hover:text-foreground"
                 )}
-              </div>
-              <textarea
-                ref={captionRef} id="caption" value={caption} disabled={!canInteract}
-                onChange={(e) => applyCaption(e.target.value)}
-                rows={6}
-                placeholder="Escreva a legenda da publicação…"
-                className="w-full resize-none rounded-xl border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-relaxed outline-none transition-colors placeholder:text-muted/60 focus:border-accent focus:ring-[3px] focus:ring-accent/15"
-              />
-              {/* Toolbar */}
-              <div className="mt-2 flex flex-wrap items-center gap-1">
-                <ToolButton label="Hashtags" onClick={() => applyCaption(caption + (caption.endsWith(" ") || !caption ? "" : " ") + "#")}>
-                  <Hash size={14} />
-                </ToolButton>
-                <div className="relative">
-                  <ToolButton label="Emojis" onClick={() => setEmojiOpen((v) => !v)}><Smile size={14} /></ToolButton>
-                  <AnimatePresence>
-                    {emojiOpen && (
-                      <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
-                        className="absolute z-10 mt-1 grid w-56 grid-cols-8 gap-0.5 rounded-xl border border-border bg-surface p-2 shadow-lg">
-                        {EMOJIS.map((e) => (
-                          <button key={e} type="button" className="rounded-md p-1 text-[15px] transition hover:bg-surface-2"
-                            onClick={() => { applyCaption(caption + e); setEmojiOpen(false); }}>
-                            {e}
-                          </button>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-                <div className="mx-1 h-4 w-px bg-border" />
-                <span className="mr-0.5 flex items-center gap-1 text-[11px] font-medium text-muted"><Sparkles size={11} className="text-accent" /> Assistente</span>
-                {(["improve", "hashtags", "shorten", "fix"] as const).map((k) => (
-                  <button key={k} type="button" onClick={() => aiAssist(k)}
-                    className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-muted transition hover:border-accent/40 hover:text-accent">
-                    {{ improve: "Melhorar", hashtags: "# Sugerir", shorten: "Encurtar", fix: "Corrigir" }[k]}
-                  </button>
-                ))}
-                {/* Char count */}
-                <div className="ml-auto flex items-center gap-2">
-                  <svg width={22} height={22} viewBox="0 0 24 24" className="-rotate-90">
-                    <circle cx="12" cy="12" r="9" fill="none" stroke="var(--border)" strokeWidth="2.5" />
-                    <circle cx="12" cy="12" r="9" fill="none" stroke={charPct > 1 ? "var(--danger)" : charPct > 0.85 ? "var(--warning)" : "var(--accent)"}
-                      strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${Math.min(charPct, 1) * 56.5} 56.5`} />
-                  </svg>
-                  <span className={cn("text-[11.5px] tnum", charPct > 1 ? "font-semibold text-danger" : "text-muted")}>
-                    {caption.length.toLocaleString("pt-BR")}/{charLimit.toLocaleString("pt-BR")}
-                  </span>
-                </div>
-              </div>
-            </div>
+              >
+                <f.icon size={13} /> {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-            {/* First comment */}
-            <div>
-              <label className={labelCls} htmlFor="first-comment">Primeiro comentário <span className="font-normal text-muted/60">(opcional)</span></label>
-              <input id="first-comment" className={inputCls} placeholder="Hashtags extras ou CTA no primeiro comentário…" value={firstComment} onChange={(e) => setFirstComment(e.target.value)} disabled={!canInteract} />
-            </div>
-
-            {/* Automação de direct: configurável desde a criação. É gravada
-                junto com a publicação, no submit. */}
-            <AutomationFields value={automation} onChange={setAutomation} disabled={!canInteract} />
-
-            {/* Media */}
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <label className={cn(labelCls, "mb-0")}>Mídia ({mediaUrls.length})</label>
-                {canInteract && (
-                  <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
-                    <ImagePlus size={13} /> Adicionar da biblioteca
-                  </Button>
-                )}
-              </div>
-              {mediaUrls.length === 0 ? (
-                <button type="button" onClick={() => canInteract && setPickerOpen(true)}
-                  className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-border-strong py-8 text-muted transition hover:border-accent/50 hover:text-accent">
-                  <ImagePlus size={20} />
-                  <span className="text-[12.5px] font-medium">Selecionar imagens ou vídeos</span>
+        {/* Caption */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className={cn(labelCls, "mb-0")} htmlFor="caption">Legenda</label>
+            {canInteract && (
+              <div className="flex items-center gap-1">
+                <button type="button" className="rounded-md p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground disabled:opacity-30"
+                  disabled={undoStack.current.length === 0 && histVersion >= 0 && undoStack.current.length === 0}
+                  onClick={() => { if (undoStack.current.length) { redoStack.current.push(caption); const prev = undoStack.current.pop()!; setCaption(prev); setHistVersion(v => v + 1); } }}
+                  aria-label="Desfazer" title="Desfazer">
+                  <Undo2 size={14} />
                 </button>
-              ) : (
-                <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-5">
-                  {mediaUrls.map((url, i) => (
-                    <div key={url + i} className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-surface-2">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt="" className="h-full w-full object-cover" />
-                      {canInteract && (
-                        <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/45 opacity-0 transition group-hover:opacity-100">
-                          <button type="button" aria-label="Mover para esquerda" className="rounded-md bg-white/90 p-1 text-gray-800 disabled:opacity-30" disabled={i === 0}
-                            onClick={() => setMediaUrls((m) => { const c = [...m]; [c[i - 1], c[i]] = [c[i], c[i - 1]]; return c; })}>
-                            <ChevronLeft size={12} />
-                          </button>
-                          <button type="button" aria-label="Remover" className="rounded-md bg-white/90 p-1 text-red-600"
-                            onClick={() => setMediaUrls((m) => m.filter((_, j) => j !== i))}>
-                            <Trash2 size={12} />
-                          </button>
-                          <button type="button" aria-label="Mover para direita" className="rounded-md bg-white/90 p-1 text-gray-800 disabled:opacity-30" disabled={i === mediaUrls.length - 1}
-                            onClick={() => setMediaUrls((m) => { const c = [...m]; [c[i + 1], c[i]] = [c[i], c[i + 1]]; return c; })}>
-                            <ChevronRight size={12} />
-                          </button>
-                        </div>
-                      )}
-                      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold text-white">{i + 1}</span>
-                    </div>
-                  ))}
+                <button type="button" className="rounded-md p-1.5 text-muted transition hover:bg-surface-2 hover:text-foreground disabled:opacity-30"
+                  disabled={redoStack.current.length === 0}
+                  onClick={() => { if (redoStack.current.length) { undoStack.current.push(caption); const next = redoStack.current.pop()!; setCaption(next); setHistVersion(v => v + 1); } }}
+                  aria-label="Refazer" title="Refazer">
+                  <Redo2 size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+          <textarea
+            ref={captionRef} id="caption" value={caption} disabled={!canInteract}
+            onChange={(e) => applyCaption(e.target.value)}
+            rows={6}
+            placeholder="Escreva a legenda da publicação…"
+            className="w-full resize-none rounded-xl border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-relaxed outline-none transition-colors placeholder:text-muted/60 focus:border-accent focus:ring-[3px] focus:ring-accent/15"
+          />
+          {/* Toolbar */}
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <ToolButton label="Hashtags" onClick={() => applyCaption(caption + (caption.endsWith(" ") || !caption ? "" : " ") + "#")}>
+              <Hash size={14} />
+            </ToolButton>
+            <div className="relative">
+              <ToolButton label="Emojis" onClick={() => setEmojiOpen((v) => !v)}><Smile size={14} /></ToolButton>
+              <AnimatePresence>
+                {emojiOpen && (
+                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                    className="absolute z-10 mt-1 grid w-56 grid-cols-8 gap-0.5 rounded-xl border border-border bg-surface p-2 shadow-lg">
+                    {EMOJIS.map((e) => (
+                      <button key={e} type="button" className="rounded-md p-1 text-[15px] transition hover:bg-surface-2"
+                        onClick={() => { applyCaption(caption + e); setEmojiOpen(false); }}>
+                        {e}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <div className="mx-1 h-4 w-px bg-border" />
+            <span className="mr-0.5 flex items-center gap-1 text-[11px] font-medium text-muted"><Sparkles size={11} className="text-accent" /> Assistente</span>
+            {(["improve", "hashtags", "shorten", "fix"] as const).map((k) => (
+              <button key={k} type="button" onClick={() => aiAssist(k)}
+                className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-muted transition hover:border-accent/40 hover:text-accent">
+                {{ improve: "Melhorar", hashtags: "# Sugerir", shorten: "Encurtar", fix: "Corrigir" }[k]}
+              </button>
+            ))}
+            {/* Char count */}
+            <div className="ml-auto flex items-center gap-2">
+              <svg width={22} height={22} viewBox="0 0 24 24" className="-rotate-90">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="var(--border)" strokeWidth="2.5" />
+                <circle cx="12" cy="12" r="9" fill="none" stroke={charPct > 1 ? "var(--danger)" : charPct > 0.85 ? "var(--warning)" : "var(--accent)"}
+                  strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${Math.min(charPct, 1) * 56.5} 56.5`} />
+              </svg>
+              <span className={cn("text-[11.5px] tnum", charPct > 1 ? "font-semibold text-danger" : "text-muted")}>
+                {caption.length.toLocaleString("pt-BR")}/{charLimit.toLocaleString("pt-BR")}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* First comment */}
+        <div>
+          <label className={labelCls} htmlFor="first-comment">Primeiro comentário <span className="font-normal text-muted/60">(opcional)</span></label>
+          <input id="first-comment" className={inputCls} placeholder="Hashtags extras ou CTA no primeiro comentário…" value={firstComment} onChange={(e) => setFirstComment(e.target.value)} disabled={!canInteract} />
+        </div>
+
+        {/* Automação de direct: configurável desde a criação. É gravada
+            junto com a publicação, no submit. */}
+        <AutomationFields value={automation} onChange={setAutomation} disabled={!canInteract} />
+
+        {/* Media */}
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <label className={cn(labelCls, "mb-0")}>Mídia ({mediaUrls.length})</label>
+            {canInteract && (
+              <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
+                <ImagePlus size={13} /> Adicionar da biblioteca
+              </Button>
+            )}
+          </div>
+          {mediaUrls.length === 0 ? (
+            <button type="button" onClick={() => canInteract && setPickerOpen(true)}
+              className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-border-strong py-8 text-muted transition hover:border-accent/50 hover:text-accent">
+              <ImagePlus size={20} />
+              <span className="text-[12.5px] font-medium">Selecionar imagens ou vídeos</span>
+            </button>
+          ) : (
+            <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-5">
+              {mediaUrls.map((url, i) => (
+                <div key={url + i} className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-surface-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt="" className="h-full w-full object-cover" />
                   {canInteract && (
-                    <button type="button" onClick={() => setPickerOpen(true)}
-                      className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-border-strong text-muted transition hover:border-accent/50 hover:text-accent">
-                      <ImagePlus size={18} />
-                    </button>
+                    <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/45 opacity-0 transition group-hover:opacity-100">
+                      <button type="button" aria-label="Mover para esquerda" className="rounded-md bg-white/90 p-1 text-gray-800 disabled:opacity-30" disabled={i === 0}
+                        onClick={() => setMediaUrls((m) => { const c = [...m]; [c[i - 1], c[i]] = [c[i], c[i - 1]]; return c; })}>
+                        <ChevronLeft size={12} />
+                      </button>
+                      <button type="button" aria-label="Remover" className="rounded-md bg-white/90 p-1 text-red-600"
+                        onClick={() => setMediaUrls((m) => m.filter((_, j) => j !== i))}>
+                        <Trash2 size={12} />
+                      </button>
+                      <button type="button" aria-label="Mover para direita" className="rounded-md bg-white/90 p-1 text-gray-800 disabled:opacity-30" disabled={i === mediaUrls.length - 1}
+                        onClick={() => setMediaUrls((m) => { const c = [...m]; [c[i + 1], c[i]] = [c[i], c[i + 1]]; return c; })}>
+                        <ChevronRight size={12} />
+                      </button>
+                    </div>
                   )}
+                  <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold text-white">{i + 1}</span>
                 </div>
+              ))}
+              {canInteract && (
+                <button type="button" onClick={() => setPickerOpen(true)}
+                  className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-border-strong text-muted transition hover:border-accent/50 hover:text-accent">
+                  <ImagePlus size={18} />
+                </button>
               )}
             </div>
-
-            {/* Schedule */}
-            {canInteract && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className={labelCls} htmlFor="schedule">Agendar para</label>
-                  <input id="schedule" type="datetime-local" className={cn(inputCls, "tnum")} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
-                </div>
-                <div className="flex items-end pb-1">
-                  <p className="flex items-center gap-1.5 text-[11.5px] text-muted">
-                    <CalendarClock size={13} /> Fuso: {ws?.workspace.timezone?.replace("_", " ") ?? "America/Sao Paulo"} (GMT-3)
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ------------------------------ Preview ------------------------------ */}
-          <div className="hidden flex-col border-l border-border bg-surface-2/50 lg:flex">
-            {/* As abas seguem as redes escolhidas — não adianta pré-visualizar
-                onde a publicação não vai sair. */}
-            <div className="flex flex-wrap items-center justify-center gap-1 border-b border-border p-2.5">
-              {previewTabs.map((p) => (
-                <button key={p} onClick={() => setPreview(p)}
-                  className={cn("flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition", activePreview === p ? "bg-foreground text-background" : "text-muted hover:text-foreground")}>
-                  <PlatformIcon platform={p} size={12} /> {PLATFORM_META[p].name}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-1 items-start justify-center overflow-y-auto p-5">
-              <PhonePreview
-                variant={activePreview}
-                accountName={account?.displayName ?? client?.name ?? ws?.workspace.name ?? "Sua marca"}
-                handle={account?.handle ?? "suamarca"}
-                color={client?.color ?? ws?.workspace.color ?? "#AB2F5F"}
-                caption={caption}
-                mediaUrls={mediaUrls}
-                format={format}
-              />
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5">
-          {editing && status !== "published" && (
-            <Button variant="ghost" size="md" className="text-danger hover:bg-danger/10" onClick={remove}>
-              <Trash2 size={14} /> Excluir
-            </Button>
-          )}
-          {/* Confirmação visível de que uma mensagem vai sair sozinha em nome
-              do cliente — não pode depender de lembrar do que foi marcado acima. */}
-          {isDraftComplete(automation) && (
-            <span className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-[11.5px] font-medium text-accent">
-              <Bot size={13} /> Responde no direct quem comentar
-            </span>
-          )}
-          <div className="ml-auto grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
-            {canInteract && (
-              <>
-                <Button variant="outline" onClick={() => submit("draft")} loading={busy === "draft"}>
-                  <Save size={14} /> Rascunho
-                </Button>
-                <Button variant="soft" onClick={() => submit("schedule")} loading={busy === "schedule"} disabled={!scheduledAt}>
-                  <CalendarClock size={14} /> Agendar
-                </Button>
-                <Button className="col-span-2 sm:col-span-1" onClick={() => submit("publish")} loading={busy === "publish"}>
-                  <Send size={14} /> Publicar agora
-                </Button>
-              </>
-            )}
+        {/* Schedule */}
+        {canInteract && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelCls} htmlFor="schedule">Agendar para</label>
+              <input id="schedule" type="datetime-local" className={cn(inputCls, "tnum")} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
+            </div>
+            <div className="flex items-end pb-1">
+              <p className="flex items-center gap-1.5 text-[11.5px] text-muted">
+                <CalendarClock size={13} /> Fuso: {ws?.workspace.timezone?.replace("_", " ") ?? "America/Sao Paulo"} (GMT-3)
+              </p>
+            </div>
           </div>
-        </div>
-
-        {pickerOpen && (
-          <MediaPicker
-            selected={mediaUrls}
-            onToggle={(url) => setMediaUrls((m) => m.includes(url) ? m.filter((u) => u !== url) : [...m, url])}
-            onClose={() => setPickerOpen(false)}
-          />
         )}
-      </motion.div>
+      </div>
+
+      {/* ------------------------------ Preview ------------------------------ */}
+      <div className="hidden flex-col border-l border-border bg-surface-2/50 lg:flex">
+        {/* As abas seguem as redes escolhidas — não adianta pré-visualizar
+            onde a publicação não vai sair. */}
+        <div className="flex flex-wrap items-center justify-center gap-1 border-b border-border p-2.5">
+          {previewTabs.map((p) => (
+            <button key={p} onClick={() => setPreview(p)}
+              className={cn("flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition", activePreview === p ? "bg-foreground text-background" : "text-muted hover:text-foreground")}>
+              <PlatformIcon platform={p} size={12} /> {PLATFORM_META[p].name}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-1 items-start justify-center overflow-y-auto p-5">
+          <PhonePreview
+            variant={activePreview}
+            accountName={account?.displayName ?? client?.name ?? ws?.workspace.name ?? "Sua marca"}
+            handle={account?.handle ?? "suamarca"}
+            color={client?.color ?? ws?.workspace.color ?? "#AB2F5F"}
+            caption={caption}
+            mediaUrls={mediaUrls}
+            format={format}
+          />
+        </div>
+      </div>
+    </div>
+
+    {/* Footer */}
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-4 py-3.5 sm:px-5">
+      {editing && status !== "published" && (
+        <Button variant="ghost" size="md" className="text-danger hover:bg-danger/10" onClick={remove}>
+          <Trash2 size={14} /> Excluir
+        </Button>
+      )}
+      {/* Confirmação visível de que uma mensagem vai sair sozinha em nome
+          do cliente — não pode depender de lembrar do que foi marcado acima. */}
+      {isDraftComplete(automation) && (
+        <span className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-[11.5px] font-medium text-accent">
+          <Bot size={13} /> Responde no direct quem comentar
+        </span>
+      )}
+      <div className="ml-auto grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
+        {canInteract && (
+          <>
+            <Button variant="outline" onClick={() => submit("draft")} loading={busy === "draft"}>
+              <Save size={14} /> Rascunho
+            </Button>
+            <Button variant="soft" onClick={() => submit("schedule")} loading={busy === "schedule"} disabled={!scheduledAt}>
+              <CalendarClock size={14} /> Agendar
+            </Button>
+            <Button className="col-span-2 sm:col-span-1" onClick={() => submit("publish")} loading={busy === "publish"}>
+              <Send size={14} /> Publicar agora
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+
+    {pickerOpen && (
+      <MediaPicker
+        selected={mediaUrls}
+        onToggle={(url) => setMediaUrls((m) => m.includes(url) ? m.filter((u) => u !== url) : [...m, url])}
+        onClose={() => setPickerOpen(false)}
+      />
+    )}
     </motion.div>
   );
 }
@@ -821,9 +819,10 @@ function MediaPicker({ selected, onToggle, onClose }: { selected: string[]; onTo
   }
 
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <Overlay open onClose={onClose} zIndex={55}>
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+        role="dialog" aria-modal="true" aria-label="Biblioteca de mídia"
+        className={cn(panelCls, "max-w-2xl")}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
           <h3 className="text-[14px] font-semibold">Biblioteca de mídia</h3>
           <div className="flex items-center gap-2">
@@ -860,6 +859,6 @@ function MediaPicker({ selected, onToggle, onClose }: { selected: string[]; onTo
           <Button size="sm" onClick={onClose}><Check size={14} /> Concluir</Button>
         </div>
       </motion.div>
-    </div>
+    </Overlay>
   );
 }
