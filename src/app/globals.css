@@ -90,6 +90,19 @@ body {
   background: transparent;
 }
 
+/* No iOS o Safari dá zoom automático ao focar um campo com fonte menor que 16px
+   (e não desfaz o zoom no blur). Em telas de toque forçamos 16px nos controles
+   de formulário — é a única forma de evitar isso sem bloquear o pinch-zoom com
+   `maximum-scale`, que prejudicaria a acessibilidade.
+   Regra fora de @layer: vence as utilities do Tailwind (text-[13.5px] etc.). */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 /* Numeric alignment for metrics */
 .tnum {
   font-variant-numeric: tabular-nums;
