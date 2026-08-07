@@ -1,5 +1,5 @@
 /* Postline PWA service worker — cache leve de assets estáticos + navegação offline. */
-const VERSION = "postline-v1";
+const VERSION = "postline-v2";
 const STATIC_CACHE = `${VERSION}-static`;
 const PRECACHE = [
   "/icons/icon-192.png",
@@ -18,6 +18,50 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
+  );
+});
+
+/* ----------------------------- Web Push ---------------------------------- */
+
+self.addEventListener("push", (event) => {
+  // Um push sem payload ainda precisa virar notificação: no iOS, receber um
+  // push e não chamar showNotification faz o Safari revogar a permissão.
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+
+  const title = data.title || "Postline";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      // Agrupa por destino: dois avisos do mesmo post substituem um ao outro em
+      // vez de empilhar. `renotify` garante alerta mesmo na substituição.
+      tag: data.url || "postline",
+      renotify: true,
+      data: { url: data.url || "/dashboard" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/dashboard";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      // Reaproveita uma janela aberta do app — abrir outra deixaria o usuário
+      // com duas instâncias do PWA.
+      for (const client of list) {
+        if (client.url.startsWith(self.location.origin)) {
+          return client.focus().then((c) => (c && c.navigate ? c.navigate(target) : c));
+        }
+      }
+      return self.clients.openWindow(target);
+    })
   );
 });
 

@@ -7,7 +7,7 @@ import {
 import { generateToken, getSessionUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient, supabaseAdminConfigured } from "@/lib/supabase/admin";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -19,7 +19,13 @@ export async function GET() {
     db.select().from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, wid), isNull(workspaceMembers.deletedAt))),
     db.select().from(clients).where(and(eq(clients.workspaceId, wid), isNull(clients.deletedAt))).orderBy(clients.name),
     db.select().from(socialAccounts).where(and(eq(socialAccounts.workspaceId, wid), isNull(socialAccounts.deletedAt))),
-    db.select().from(notifications).where(and(eq(notifications.workspaceId, wid), isNull(notifications.deletedAt))).orderBy(desc(notifications.createdAt)).limit(15),
+    // `user_id` nulo = aviso do workspace (todos veem); preenchido = pessoal,
+    // some para os outros membros.
+    db.select().from(notifications).where(and(
+      eq(notifications.workspaceId, wid),
+      isNull(notifications.deletedAt),
+      or(isNull(notifications.userId), eq(notifications.userId, user.id)),
+    )).orderBy(desc(notifications.createdAt)).limit(15),
     db.select().from(activityLogs).where(and(eq(activityLogs.workspaceId, wid), isNull(activityLogs.deletedAt))).orderBy(desc(activityLogs.createdAt)).limit(20),
     db.select().from(apiKeys).where(and(eq(apiKeys.workspaceId, wid), isNull(apiKeys.deletedAt))).orderBy(desc(apiKeys.createdAt)),
     Promise.all([
@@ -120,8 +126,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     case "readNotifications": {
+      // Só o que este usuário enxerga — não marcar como lido o aviso pessoal de outro.
       await db.update(notifications).set({ read: true })
-        .where(and(eq(notifications.workspaceId, wid), eq(notifications.read, false)));
+        .where(and(
+          eq(notifications.workspaceId, wid),
+          eq(notifications.read, false),
+          or(isNull(notifications.userId), eq(notifications.userId, user.id)),
+        ));
       return NextResponse.json({ ok: true });
     }
     case "createKey": {

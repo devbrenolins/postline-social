@@ -295,15 +295,53 @@ export const notifications = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    // Destinatário. Nulo = visível para o workspace inteiro (comportamento antigo);
+    // preenchido = only-me, usado por avisos como "seu post agendado publicou".
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 200 }).notNull(),
     body: text("body").default(""),
     kind: varchar("kind", { length: 24 }).notNull().default("info"), // info | success | warning
+    // Link aberto ao tocar na notificação push.
+    url: text("url"),
     read: boolean("read").notNull().default(false),
+    // Idempotência para avisos recorrentes: o cron roda de hora em hora e tentaria
+    // reinserir "seu teste acaba em 3 dias" toda vez. Com o índice único abaixo, a
+    // segunda inserção é descartada (onConflictDoNothing) em vez de virar spam.
+    dedupeKey: varchar("dedupe_key", { length: 200 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("notifications_workspace_idx").on(t.workspaceId)]
+  (t) => [
+    index("notifications_workspace_idx").on(t.workspaceId),
+    index("notifications_user_idx").on(t.userId),
+    uniqueIndex("notifications_dedupe_idx").on(t.dedupeKey),
+  ]
+);
+
+/* ------------------------------------------------------------------ */
+/*  Web Push (uma linha por dispositivo/navegador inscrito)            */
+/* ------------------------------------------------------------------ */
+
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // O endpoint identifica o dispositivo e é a chave natural: o mesmo navegador
+    // reinscrevendo devolve o mesmo endpoint, então atualizamos em vez de duplicar.
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    // Última vez que um envio a este endpoint teve sucesso — só para diagnóstico.
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("push_endpoint_idx").on(t.endpoint), index("push_user_idx").on(t.userId)]
 );
 
 /* ------------------------------------------------------------------ */

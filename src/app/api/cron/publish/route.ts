@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { posts, notifications } from "@/db/schema";
+import { posts } from "@/db/schema";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import { publishPost } from "@/lib/publishing";
+import { notifyUser, notifyWorkspace } from "@/lib/push";
 
 export const maxDuration = 60;
 
@@ -19,7 +20,7 @@ async function run(req: NextRequest) {
   }
 
   const due = await db
-    .select({ id: posts.id, workspaceId: posts.workspaceId })
+    .select({ id: posts.id, workspaceId: posts.workspaceId, authorId: posts.authorId })
     .from(posts)
     .where(and(eq(posts.status, "scheduled"), lte(posts.scheduledAt, new Date()), isNull(posts.deletedAt)))
     .limit(50);
@@ -29,12 +30,18 @@ async function run(req: NextRequest) {
     try {
       const { status, results } = await publishPost(post.id, post.workspaceId);
       summary.push({ id: post.id, status });
-      await db.insert(notifications).values({
+      const ok = status === "published";
+      const aviso = {
         workspaceId: post.workspaceId,
-        title: status === "published" ? "Post agendado publicado" : "Falha na publicação agendada",
+        title: ok ? "Post agendado publicado" : "Falha na publicação agendada",
         body: results.map((r) => `@${r.account}: ${r.ok ? "ok" : r.error}`).join(" · "),
-        kind: status === "published" ? "success" : "warning",
-      });
+        kind: (ok ? "success" : "warning") as "success" | "warning",
+        url: "/calendar",
+      };
+      // Só quem agendou é avisado. Posts antigos sem autor (author_id nulo, ex.:
+      // membro removido) caem no aviso do workspace para não sumirem.
+      if (post.authorId) await notifyUser(post.authorId, aviso);
+      else await notifyWorkspace(aviso);
     } catch (e) {
       summary.push({ id: post.id, status: "failed", error: e instanceof Error ? e.message : "erro" });
     }

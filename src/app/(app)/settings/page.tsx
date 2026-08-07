@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn, Button, Badge, Switch, Avatar, inputCls, labelCls, PlatformChip, InlineError, timeAgo } from "@/components/ui";
 import { useWorkspace } from "@/components/workspace-context";
+import { PushToggle } from "@/components/push-toggle";
 import { toast } from "sonner";
 import { PLATFORM_META, type Platform } from "@/components/ui";
 
@@ -220,6 +221,7 @@ function NotificationsTab() {
   return (
     <Card title="Preferências de notificação" sub="Salvas automaticamente neste navegador">
       <div className="divide-y divide-border/70">
+        <PushToggle />
         {rows.map((r) => (
           <div key={r.key} className="flex items-center justify-between py-3.5">
             <div>
