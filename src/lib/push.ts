@@ -90,9 +90,17 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
         await webpush.sendNotification(target, body, { TTL: 60 * 60 * 24, urgency: "normal" });
         alive.push(sub.endpoint);
       } catch (e) {
-        const status = (e as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410) dead.push(sub.endpoint);
-        else console.error("[push] falha ao enviar", sub.endpoint.slice(0, 48), status ?? e);
+        const err = e as { statusCode?: number; body?: string; message?: string };
+        const host = sub.endpoint.startsWith("http") ? new URL(sub.endpoint).host : sub.endpoint.slice(0, 40);
+        const detalhe = (err.body ?? err.message ?? "").toString().slice(0, 200);
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          // Registrar antes de apagar: sem isso uma inscrição recém-criada some
+          // no mesmo request que a gravou e não sobra nada para diagnosticar.
+          console.error(`[push] inscrição removida — HTTP ${err.statusCode} de ${host}: ${detalhe}`);
+          dead.push(sub.endpoint);
+        } else {
+          console.error(`[push] falha ao enviar — HTTP ${err.statusCode ?? "?"} de ${host}: ${detalhe}`);
+        }
       }
     })
   );
