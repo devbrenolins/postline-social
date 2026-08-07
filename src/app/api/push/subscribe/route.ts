@@ -44,31 +44,45 @@ export async function POST(req: NextRequest) {
   // O endpoint é único: o mesmo navegador reinscrevendo cai aqui e atualiza a
   // linha. O `set` do userId cobre a troca de conta no mesmo aparelho — sem ele,
   // o dispositivo continuaria recebendo os avisos do usuário anterior.
-  await db
-    .insert(pushSubscriptions)
-    .values({
-      userId: user.id,
-      endpoint,
-      p256dh,
-      auth,
-      userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
-    })
-    .onConflictDoUpdate({
-      target: pushSubscriptions.endpoint,
-      set: { userId: user.id, p256dh, auth, updatedAt: new Date() },
-    });
-
-  // Confirma pro usuário que funcionou — sem isso ele ativa e fica no escuro.
-  if (body?.test !== false) {
-    await sendPushToUsers([user.id], {
-      title: "Notificações ativadas",
-      body: "Você receberá avisos dos seus posts agendados por aqui.",
-      url: "/dashboard",
-      kind: "success",
-    });
+  try {
+    await db
+      .insert(pushSubscriptions)
+      .values({
+        userId: user.id,
+        endpoint,
+        p256dh,
+        auth,
+        userAgent: req.headers.get("user-agent")?.slice(0, 500) ?? null,
+      })
+      .onConflictDoUpdate({
+        target: pushSubscriptions.endpoint,
+        set: { userId: user.id, p256dh, auth, updatedAt: new Date() },
+      });
+  } catch (e) {
+    console.error("[push] falha ao gravar inscrição", e);
+    return NextResponse.json({ error: "Não foi possível salvar a inscrição." }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  // Confirma pro usuário que funcionou — sem isso ele ativa e fica no escuro.
+  // Uma falha aqui não invalida a inscrição, que já está salva: o retorno diz
+  // que gravou mas não entregou, e a UI mostra isso em vez de um erro cego.
+  let entregue = true;
+  if (body?.test !== false) {
+    try {
+      const enviados = await sendPushToUsers([user.id], {
+        title: "Notificações ativadas",
+        body: "Você receberá avisos dos seus posts agendados por aqui.",
+        url: "/dashboard",
+        kind: "success",
+      });
+      entregue = enviados > 0;
+    } catch (e) {
+      console.error("[push] falha no push de confirmação", e);
+      entregue = false;
+    }
+  }
+
+  return NextResponse.json({ ok: true, entregue });
 }
 
 /** Remove a inscrição deste dispositivo. */

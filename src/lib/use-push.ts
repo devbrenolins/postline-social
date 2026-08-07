@@ -169,14 +169,22 @@ export function usePush() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sub.toJSON()),
       });
-      if (!res.ok) throw new Error("falha ao registrar");
+      const data = (await res.json().catch(() => null)) as { error?: string; entregue?: boolean } | null;
+      if (!res.ok) throw new Error(data?.error ?? `servidor respondeu ${res.status}`);
 
       setEstado("on");
-      toast.success("Notificações ativadas neste dispositivo.");
+      // A inscrição valeu, mas o push de confirmação não saiu — quase sempre
+      // chaves VAPID erradas no servidor. Dizer "ativado" seco faria o usuário
+      // esperar por uma notificação que não vem.
+      if (data?.entregue === false) {
+        toast.warning("Inscrição salva, mas o aviso de teste não foi entregue. Verifique as chaves VAPID.");
+      } else {
+        toast.success("Notificações ativadas neste dispositivo.");
+      }
       return true;
     } catch (e) {
-      console.error(e);
-      toast.error("Não foi possível ativar as notificações.");
+      console.error("[push] ativar", e);
+      toast.error(e instanceof Error ? `Falha ao ativar: ${e.message}` : "Não foi possível ativar as notificações.");
       void sincronizar();
       return false;
     } finally {

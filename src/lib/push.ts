@@ -36,15 +36,23 @@ let configured: boolean | null = null;
 /** Configura o VAPID uma vez por processo. `false` = push desligado (sem chaves). */
 function ensureVapid(): boolean {
   if (configured !== null) return configured;
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
+  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
   if (!publicKey || !privateKey) {
     configured = false;
     return false;
   }
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:contato@postline.social", publicKey, privateKey);
-  configured = true;
-  return true;
+  try {
+    // `setVapidDetails` lança com chave malformada (colada com espaço, cortada,
+    // subject sem mailto:). Sem este catch o erro sobe pela rota e vira 500 —
+    // o usuário veria "não foi possível ativar" mesmo com a inscrição salva.
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT?.trim() || "mailto:contato@postline.social", publicKey, privateKey);
+    configured = true;
+  } catch (e) {
+    console.error("[push] chaves VAPID inválidas:", e instanceof Error ? e.message : e);
+    configured = false;
+  }
+  return configured;
 }
 
 /* ------------------------------------------------------------------ */
