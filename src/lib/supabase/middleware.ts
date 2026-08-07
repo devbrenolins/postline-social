@@ -13,7 +13,11 @@ const PUBLIC_PREFIXES = [
   "/api/meta/webhook",
   "/api/meta/data-deletion",
   "/api/health",
+  // Chamadas de fora do navegador, sem cookie de sessão: cada uma se protege
+  // pelo próprio segredo (CRON_SECRET, ADMIN_SECRET). Sem estarem aqui, o
+  // middleware as redireciona para /login e o segredo nunca é conferido.
   "/api/cron",
+  "/api/admin",
 ];
 
 /**
