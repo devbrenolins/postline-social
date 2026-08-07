@@ -11,8 +11,12 @@ import { toast } from "sonner";
 
 export type PushEstado =
   | "carregando"
-  /** Navegador sem suporte, ou servidor sem chaves VAPID. */
+  /** Navegador sem suporte (inclui iOS anterior ao 16.4). */
   | "indisponivel"
+  /** Servidor sem chaves VAPID configuradas. */
+  | "sem-config"
+  /** O service worker não ficou pronto a tempo — app precisa ser reaberto. */
+  | "sw-ausente"
   /** iOS fora do PWA: só falta instalar na tela de início. */
   | "precisa-instalar"
   /** O usuário já negou. Irreversível pelo app. */
@@ -90,26 +94,33 @@ export function usePush() {
       return;
     }
     try {
-      // `serviceWorker.ready` fica pendente para sempre quando não há SW
-      // registrado — é o caso em desenvolvimento, onde o PwaRegister não roda.
-      // Checar a existência antes evita travar a UI em "Verificando…".
-      const existente = await navigator.serviceWorker.getRegistration();
-      if (!existente) {
-        setEstado("indisponivel");
+      // O `PwaRegister` registra o service worker no evento `load` da janela,
+      // que pode acontecer DEPOIS deste efeito — num PWA em cold start é o caso
+      // comum. Consultar `getRegistration()` na hora acusaria "sem suporte" por
+      // pura corrida. `ready` espera o registro; o timeout evita travar em
+      // "Verificando…" onde SW nenhum vai aparecer (desenvolvimento).
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((r) => setTimeout(() => r(null), 8000)),
+      ]);
+      if (!reg) {
+        setEstado("sw-ausente");
         return;
       }
-      const reg = await navigator.serviceWorker.ready;
+
       const sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        setEstado("off");
+      // O servidor é a fonte da verdade: o navegador pode ter inscrição local
+      // sem linha no banco (troca de conta, limpeza de dados). E é aqui que
+      // descobrimos se o servidor tem chaves VAPID.
+      const res = await fetch(
+        `/api/push/subscribe${sub ? `?endpoint=${encodeURIComponent(sub.endpoint)}` : ""}`
+      );
+      const data = (await res.json()) as { configured: boolean; subscribed: boolean };
+      if (!data.configured) {
+        setEstado("sem-config");
         return;
       }
-      // O navegador pode ter inscrição local sem linha no banco (troca de conta,
-      // limpeza de dados). O servidor é a fonte da verdade.
-      const res = await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`);
-      const data = (await res.json()) as { configured: boolean; subscribed: boolean };
-      if (!data.configured) setEstado("indisponivel");
-      else setEstado(data.subscribed ? "on" : "off");
+      setEstado(sub && data.subscribed ? "on" : "off");
     } catch {
       setEstado("off");
     }
@@ -139,7 +150,7 @@ export function usePush() {
       const chave = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!chave) {
         toast.error("Push não configurado no servidor.");
-        setEstado("indisponivel");
+        setEstado("sem-config");
         return false;
       }
 

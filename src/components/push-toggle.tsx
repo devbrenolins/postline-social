@@ -11,7 +11,9 @@ import { usePush, type Plataforma, type PushEstado } from "@/lib/use-push";
 
 const TEXTOS: Record<Exclude<PushEstado, "bloqueado">, string> = {
   carregando: "Verificando…",
-  indisponivel: "Este navegador não suporta notificações push.",
+  indisponivel: "Este navegador não suporta notificações push. No iPhone é preciso iOS 16.4 ou mais recente.",
+  "sem-config": "Notificações push ainda não configuradas no servidor.",
+  "sw-ausente": "O app ainda não terminou de carregar em segundo plano. Feche e abra o Postline de novo.",
   "precisa-instalar":
     "No iPhone, toque em Compartilhar › Adicionar à Tela de Início e abra o Postline por lá para ativar.",
   off: "Receba avisos mesmo com o app fechado. Vale só para este dispositivo.",
@@ -57,7 +59,7 @@ export function PushToggle() {
           onChange={(v) => void (v ? ativar() : desativar())}
           label="Notificações push"
         />
-      ) : bloqueado ? (
+      ) : bloqueado || estado === "sw-ausente" ? (
         <Button size="sm" variant="outline" onClick={() => void sincronizar()} disabled={ocupado}>
           Verificar
         </Button>

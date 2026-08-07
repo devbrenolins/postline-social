@@ -8,13 +8,20 @@ export function PwaRegister() {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
     if (process.env.NODE_ENV !== "production") return;
-    const onLoad = () => {
+    const registrar = () => {
       navigator.serviceWorker.register("/sw.js").catch(() => {
         /* falha silenciosa: o app continua funcionando sem offline */
       });
     };
-    window.addEventListener("load", onLoad);
-    return () => window.removeEventListener("load", onLoad);
+    // Num PWA já aberto (ou em navegação client-side) o evento `load` pode ter
+    // acontecido antes deste efeito montar — esperar por ele deixaria o service
+    // worker sem registrar, e o push indisponível sem motivo aparente.
+    if (document.readyState === "complete") {
+      registrar();
+      return;
+    }
+    window.addEventListener("load", registrar);
+    return () => window.removeEventListener("load", registrar);
   }, []);
   return null;
 }
