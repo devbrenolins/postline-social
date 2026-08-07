@@ -1,9 +1,12 @@
 -- ============================================================================
---  Agendador de publicação via Supabase (pg_cron + pg_net)
---  Substitui o Vercel Cron (que no plano Hobby só roda 1x/dia).
+--  Agendadores via Supabase (pg_cron + pg_net)
+--  Substituem o Vercel Cron (que no plano Hobby só roda 1x/dia e limita a
+--  quantidade de jobs — o deploy é rejeitado se passar).
 --
---  O banco NÃO publica no Instagram — ele só dispara um POST no endpoint
---  /api/cron/publish do app a cada 5 min; a publicação em si roda no app.
+--  O banco não faz o trabalho: ele só dispara POSTs nos endpoints do app.
+--    1. /api/cron/publish    a cada minuto — publica os posts agendados
+--    2. /api/cron/lifecycle  de hora em hora — avisa sobre fim de teste e
+--       token do Instagram vencendo
 --
 --  Como usar: Supabase → SQL Editor → cole e rode este script.
 --  Troque a URL pelo domínio do seu deploy e mantenha o mesmo CRON_SECRET
@@ -20,10 +23,32 @@ where exists (select 1 from cron.job where jobname = 'postline-publish');
 
 select cron.schedule(
   'postline-publish',
-  '*/5 * * * *',                       -- a cada 5 minutos (UTC)
+  '* * * * *',                         -- a cada minuto (piso do pg_cron)
   $$
   select net.http_post(
-    url     := 'https://SEU-APP.vercel.app/api/cron/publish',
+    url     := 'https://postline-social.vercel.app/api/cron/publish',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer 1oR9un0gpAENW0xCdO1cOInP0Du0bZeO',
+      'Content-Type',  'application/json'
+    ),
+    body    := '{}'::jsonb
+  );
+  $$
+);
+
+-- 3. Avisos de ciclo de vida (fim de teste, token do Instagram vencendo).
+--    De hora em hora basta: os avisos são deduplicados por `dedupe_key`, então
+--    rodar de novo não reenvia nada — no pior caso o usuário é avisado até uma
+--    hora depois do marco, o que é irrelevante para um teste de 7 dias.
+select cron.unschedule('postline-lifecycle')
+where exists (select 1 from cron.job where jobname = 'postline-lifecycle');
+
+select cron.schedule(
+  'postline-lifecycle',
+  '7 * * * *',                         -- minuto 7 de cada hora (UTC)
+  $$
+  select net.http_post(
+    url     := 'https://postline-social.vercel.app/api/cron/lifecycle',
     headers := jsonb_build_object(
       'Authorization', 'Bearer 1oR9un0gpAENW0xCdO1cOInP0Du0bZeO',
       'Content-Type',  'application/json'
@@ -36,9 +61,10 @@ select cron.schedule(
 -- ----------------------------------------------------------------------------
 --  Comandos úteis
 -- ----------------------------------------------------------------------------
--- Ver o job agendado:
+-- Ver os jobs agendados:
 --   select * from cron.job;
 -- Ver as últimas execuções (status/erros):
 --   select * from cron.job_run_details order by start_time desc limit 10;
--- Remover o job:
+-- Remover um job:
 --   select cron.unschedule('postline-publish');
+--   select cron.unschedule('postline-lifecycle');

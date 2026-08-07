@@ -4,6 +4,7 @@ const STATIC_CACHE = `${VERSION}-static`;
 const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
+  "/icons/badge-96.png",
   "/icons/maskable-512.png",
   "/icons/apple-touch-icon.png",
   "/postline-logo.svg",
@@ -37,12 +38,19 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || "",
+      // Ícone colorido, mostrado ao lado do texto (Android/desktop).
       icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
+      // Badge é a marca na barra de status e o sistema o trata como máscara de
+      // alfa — só a silhueta sobrevive. Precisa ser o PNG transparente; usar o
+      // icon-192, que é opaco inteiro, produziria um quadrado sólido.
+      badge: "/icons/badge-96.png",
       // Agrupa por destino: dois avisos do mesmo post substituem um ao outro em
       // vez de empilhar. `renotify` garante alerta mesmo na substituição.
       tag: data.url || "postline",
       renotify: true,
+      lang: "pt-BR",
+      dir: "ltr",
+      timestamp: Date.now(),
       data: { url: data.url || "/dashboard" },
     })
   );

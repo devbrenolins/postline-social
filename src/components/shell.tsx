@@ -16,6 +16,7 @@ import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context"
 import { ComposerProvider, useComposer, ComposerModal } from "@/components/composer";
 import { PlanBanner } from "@/components/plan-banner";
 import { UpgradeModal } from "@/components/upgrade-modal";
+import { PushPrompt } from "@/components/push-prompt";
 import { toast } from "sonner";
 
 const NAV = [
@@ -57,6 +58,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <ShellInner>{children}</ShellInner>
         <ComposerModal />
         <UpgradeModal />
+        <PushPrompt />
       </ComposerProvider>
     </WorkspaceProvider>
   );
