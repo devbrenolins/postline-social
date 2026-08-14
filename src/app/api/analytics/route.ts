@@ -31,66 +31,97 @@ export async function GET(req: NextRequest) {
   const currFrom = sql`(CURRENT_DATE - ${win}::integer)`; // início do período atual
   const prevFrom = sql`(CURRENT_DATE - ${win * 2 + 1}::integer)`; // início do período anterior
 
-  // Engajamento e visualizações reais vêm de posts.metrics (por post).
-  const engExpr = sql<number>`COALESCE((${posts.metrics}->>'likes')::int,0)+COALESCE((${posts.metrics}->>'comments')::int,0)+COALESCE((${posts.metrics}->>'shares')::int,0)+COALESCE((${posts.metrics}->>'saves')::int,0)`;
-  const viewsExpr = sql<number>`COALESCE((${posts.metrics}->>'views')::int,0)`;
-  const pubDay = sql<string>`(${posts.publishedAt} AT TIME ZONE 'UTC')::date`;
+  // Alcance, visualizações e engajamento vêm do snapshot diário da conta —
+  // os mesmos números que o app do Instagram mostra, incluindo o conteúdo
+  // publicado fora do Postline.
+  const engExpr = sql<number>`(${analyticsDaily.likes}+${analyticsDaily.comments}+${analyticsDaily.shares}+${analyticsDaily.saves})`;
 
-  // Alcance/seguidores por dia (snapshots de conta).
-  const adConds: SQL[] = [eq(analyticsDaily.workspaceId, user.workspaceId), isNull(analyticsDaily.deletedAt), gte(analyticsDaily.day, currFrom)];
-  if (withPlatform) adConds.push(eq(analyticsDaily.platform, withPlatform));
-
-  const postBase = (from: SQL, to?: SQL): SQL[] => {
-    const c: SQL[] = [eq(posts.workspaceId, user.workspaceId), eq(posts.status, "published"), isNotNull(posts.publishedAt), isNull(posts.deletedAt), gte(posts.publishedAt, from)];
-    if (to) c.push(lt(posts.publishedAt, to));
-    if (withPlatform) c.push(sql`${posts.networks}::jsonb ? ${withPlatform}`);
+  const dayRange = (from: SQL, to?: SQL): SQL[] => {
+    const c: SQL[] = [eq(analyticsDaily.workspaceId, user.workspaceId), isNull(analyticsDaily.deletedAt), gte(analyticsDaily.day, from)];
+    if (to) c.push(lt(analyticsDaily.day, to));
+    if (withPlatform) c.push(eq(analyticsDaily.platform, withPlatform));
     return c;
   };
 
-  const [reachSeries, engSeries, currPost, prevPost, currReach, prevReach, accounts, weekday, topPosts] = await Promise.all([
-    db.select({ day: analyticsDaily.day, followers: sql<number>`SUM(${analyticsDaily.followers})`, reach: sql<number>`SUM(${analyticsDaily.reach})` })
-      .from(analyticsDaily).where(and(...adConds)).groupBy(analyticsDaily.day).orderBy(analyticsDaily.day),
-    db.select({ day: pubDay, engagement: sql<number>`SUM(${engExpr})`, views: sql<number>`SUM(${viewsExpr})` })
-      .from(posts).where(and(...postBase(currFrom))).groupBy(pubDay),
-    db.select({ engagement: sql<number>`COALESCE(SUM(${engExpr}),0)`, views: sql<number>`COALESCE(SUM(${viewsExpr}),0)` })
-      .from(posts).where(and(...postBase(currFrom))),
-    db.select({ engagement: sql<number>`COALESCE(SUM(${engExpr}),0)`, views: sql<number>`COALESCE(SUM(${viewsExpr}),0)` })
-      .from(posts).where(and(...postBase(prevFrom, currFrom))),
-    db.select({ reach: sql<number>`COALESCE(SUM(${analyticsDaily.reach}),0)` }).from(analyticsDaily).where(and(...adConds)),
-    db.select({ reach: sql<number>`COALESCE(SUM(${analyticsDaily.reach}),0)` }).from(analyticsDaily)
-      .where(and(eq(analyticsDaily.workspaceId, user.workspaceId), isNull(analyticsDaily.deletedAt), gte(analyticsDaily.day, prevFrom), lt(analyticsDaily.day, currFrom), ...(withPlatform ? [eq(analyticsDaily.platform, withPlatform)] : []))),
-    db.select().from(socialAccounts).where(and(eq(socialAccounts.workspaceId, user.workspaceId), isNull(socialAccounts.deletedAt))),
-    db.select({ dow: sql<number>`EXTRACT(DOW FROM ${posts.publishedAt})::int`, eng: sql<number>`AVG(${engExpr})` })
-      .from(posts).where(and(...postBase(sql`(CURRENT_DATE - 120::integer)`))).groupBy(sql`EXTRACT(DOW FROM ${posts.publishedAt})`),
-    db.select().from(posts).where(and(...postBase(currFrom)))
-      .orderBy(desc(sql`COALESCE((${posts.metrics}->>'reach')::int,0)`)).limit(5),
+  const totals = {
+    reach: sql<number>`COALESCE(SUM(${analyticsDaily.reach}),0)`,
+    views: sql<number>`COALESCE(SUM(${analyticsDaily.views}),0)`,
+    engagement: sql<number>`COALESCE(SUM(${engExpr}),0)`,
+  };
+
+  // Top publicações continuam vindo dos posts do Postline (só eles têm mídia
+  // e legenda no banco); as métricas por post são sincronizadas em metrics.ts.
+  const postConds: SQL[] = [
+    eq(posts.workspaceId, user.workspaceId),
+    eq(posts.status, "published"),
+    isNotNull(posts.publishedAt),
+    isNull(posts.deletedAt),
+    gte(posts.publishedAt, currFrom),
+  ];
+  if (withPlatform) postConds.push(sql`${posts.networks}::jsonb ? ${withPlatform}`);
+
+  const [series, curr, prev, accounts, weekday, topPosts] = await Promise.all([
+    db
+      .select({
+        day: analyticsDaily.day,
+        followers: sql<number>`SUM(${analyticsDaily.followers})`,
+        reach: sql<number>`SUM(${analyticsDaily.reach})`,
+        views: sql<number>`SUM(${analyticsDaily.views})`,
+        engagement: sql<number>`SUM(${engExpr})`,
+      })
+      .from(analyticsDaily)
+      .where(and(...dayRange(currFrom)))
+      .groupBy(analyticsDaily.day)
+      .orderBy(analyticsDaily.day),
+    db.select(totals).from(analyticsDaily).where(and(...dayRange(currFrom))),
+    db.select(totals).from(analyticsDaily).where(and(...dayRange(prevFrom, currFrom))),
+    db
+      .select()
+      .from(socialAccounts)
+      .where(and(eq(socialAccounts.workspaceId, user.workspaceId), isNull(socialAccounts.deletedAt))),
+    db
+      .select({ dow: sql<number>`EXTRACT(DOW FROM ${analyticsDaily.day})::int`, eng: sql<number>`AVG(${engExpr})` })
+      .from(analyticsDaily)
+      .where(and(...dayRange(sql`(CURRENT_DATE - 120::integer)`)))
+      .groupBy(sql`EXTRACT(DOW FROM ${analyticsDaily.day})`),
+    db
+      .select()
+      .from(posts)
+      .where(and(...postConds))
+      .orderBy(desc(sql`COALESCE((${posts.metrics}->>'reach')::int,0)`))
+      .limit(5),
   ]);
 
-  // Une alcance/seguidores (por dia) com engajamento/views (por dia de publicação).
-  const engByDay = new Map(engSeries.map((r) => [String(r.day), r]));
-  const followersByDay = new Map(reachSeries.map((r) => [String(r.day), Number(r.followers)]));
-  const reachByDay = new Map(reachSeries.map((r) => [String(r.day), Number(r.reach)]));
-  const allDays = Array.from(new Set([...reachByDay.keys(), ...engByDay.keys()])).sort();
-  const series = allDays.map((day) => ({
-    day,
-    followers: followersByDay.get(day) ?? 0,
-    reach: reachByDay.get(day) ?? 0,
-    engagement: Number(engByDay.get(day)?.engagement ?? 0),
-    views: Number(engByDay.get(day)?.views ?? 0),
+  // Seguidores só são gravados no dia em que o app roda; nos dias preenchidos
+  // pelo histórico do Instagram o valor fica 0. Repetimos o último total
+  // conhecido para a curva não despencar em buracos de sincronização.
+  const points = series.map((r) => ({
+    day: String(r.day),
+    followers: Number(r.followers ?? 0),
+    reach: Number(r.reach ?? 0),
+    views: Number(r.views ?? 0),
+    engagement: Number(r.engagement ?? 0),
   }));
+  let last = 0;
+  for (const p of points) {
+    if (p.followers > 0) last = p.followers;
+    else p.followers = last;
+  }
+  const firstKnown = points.find((p) => p.followers > 0)?.followers ?? 0;
+  for (const p of points) {
+    if (p.followers === 0) p.followers = firstKnown;
+    else break;
+  }
 
   const followersTotal = accounts.reduce((s, a) => s + a.followers, 0);
-  const reachTotal = Number(currReach[0]?.reach ?? 0);
-  const engagement = Number(currPost[0]?.engagement ?? 0);
-  const viewsTotal = Number(currPost[0]?.views ?? 0);
-  const prevReachTotal = Number(prevReach[0]?.reach ?? 0);
-  const prevEngagement = Number(prevPost[0]?.engagement ?? 0);
-  const prevViews = Number(prevPost[0]?.views ?? 0);
+  const reachTotal = Number(curr[0]?.reach ?? 0);
+  const viewsTotal = Number(curr[0]?.views ?? 0);
+  const engagement = Number(curr[0]?.engagement ?? 0);
   const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
 
   // Crescimento de seguidores real: primeiro vs. último snapshot do período.
-  const followedSeries = reachSeries.map((r) => Number(r.followers)).filter((n) => n > 0);
-  const followersDelta = followedSeries.length >= 2 ? pct(followedSeries[followedSeries.length - 1], followedSeries[0]) : 0;
+  const followerPoints = points.map((p) => p.followers).filter((n) => n > 0);
+  const followersDelta = followerPoints.length >= 2 ? pct(followerPoints[followerPoints.length - 1], followerPoints[0]) : 0;
 
   // "Melhores dias" a partir do engajamento médio real por dia da semana.
   const byDow = new Map(weekday.map((r) => [Number(r.dow), Number(r.eng)]));
@@ -98,7 +129,7 @@ export async function GET(req: NextRequest) {
   const weekdayScores = WEEKDAYS.map((day, i) => ({ day, score: Math.round(((byDow.get(i) ?? 0) / maxDow) * 100) }));
 
   return NextResponse.json({
-    series,
+    series: points,
     kpis: {
       followers: followersTotal,
       reach: reachTotal,
@@ -106,9 +137,9 @@ export async function GET(req: NextRequest) {
       engagement,
       engagementRate: reachTotal > 0 ? (engagement / reachTotal) * 100 : 0,
       followersDelta,
-      reachDelta: pct(reachTotal, prevReachTotal),
-      viewsDelta: pct(viewsTotal, prevViews),
-      engagementDelta: pct(engagement, prevEngagement),
+      reachDelta: pct(reachTotal, Number(prev[0]?.reach ?? 0)),
+      viewsDelta: pct(viewsTotal, Number(prev[0]?.views ?? 0)),
+      engagementDelta: pct(engagement, Number(prev[0]?.engagement ?? 0)),
     },
     accounts: accounts.map((a) => ({ id: a.id, platform: a.platform, handle: a.handle, followers: a.followers })),
     weekdayScores,

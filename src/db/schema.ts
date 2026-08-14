@@ -362,6 +362,8 @@ export const analyticsDaily = pgTable(
     day: date("day").notNull(),
     followers: integer("followers").notNull().default(0),
     reach: integer("reach").notNull().default(0),
+    /** Visualizações do dia (métrica `views` da conta: posts + reels + stories). */
+    views: integer("views").notNull().default(0),
     impressions: integer("impressions").notNull().default(0),
     likes: integer("likes").notNull().default(0),
     comments: integer("comments").notNull().default(0),

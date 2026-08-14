@@ -219,6 +219,109 @@ export async function getAccountSnapshot(igId: string, token: string): Promise<A
   return snapshot;
 }
 
+export type DayTotals = { reach: number; views: number; likes: number; comments: number; shares: number; saves: number };
+export type DayInsight = DayTotals & { day: string; endTime: number };
+
+/** Métricas de conta que só existem no formato `total_value` (uma chamada por janela). */
+const DAY_METRICS = "reach,views,likes,comments,shares,saves";
+
+function emptyTotals(): DayTotals {
+  return { reach: 0, views: 0, likes: 0, comments: 0, shares: 0, saves: 0 };
+}
+
+type TotalValueResponse = { data?: Array<{ name: string; total_value?: { value?: number } }> };
+
+function readTotals(data: TotalValueResponse): DayTotals {
+  const out = emptyTotals();
+  for (const m of data.data ?? []) {
+    if (m.name in out) out[m.name as keyof DayTotals] = m.total_value?.value ?? 0;
+  }
+  return out;
+}
+
+/**
+ * Totais do dia corrente (parciais, sobem ao longo do dia).
+ * `views`, `likes` etc. só existem como `total_value` — não vêm em série temporal.
+ */
+export async function getAccountDayTotals(igId: string, token: string): Promise<DayTotals> {
+  try {
+    return readTotals(
+      await graph<TotalValueResponse>(`/${igId}/insights`, {
+        access_token: token,
+        metric: DAY_METRICS,
+        period: "day",
+        metric_type: "total_value",
+      })
+    );
+  } catch {
+    // Conta nova ou métrica indisponível: tenta só o alcance antes de desistir.
+    try {
+      return readTotals(
+        await graph<TotalValueResponse>(`/${igId}/insights`, { access_token: token, metric: "reach", period: "day", metric_type: "total_value" })
+      );
+    } catch {
+      return emptyTotals();
+    }
+  }
+}
+
+/**
+ * Série diária de alcance dos últimos dias (uma única chamada, até 30 dias).
+ *
+ * Serve a dois propósitos: traz o histórico de alcance de uma vez e revela as
+ * **fronteiras de dia da conta** (`end_time`), que dependem do fuso do perfil.
+ * Usamos esses limites para pedir o resto das métricas dia a dia sem chutar
+ * fuso horário.
+ */
+export async function getAccountReachSeries(igId: string, token: string, days = 30): Promise<Array<{ day: string; endTime: number; reach: number }>> {
+  const until = Math.floor(Date.now() / 1000);
+  const since = until - Math.min(days, 30) * 86_400;
+  const data = await graph<{ data?: Array<{ name: string; values?: Array<{ value: number; end_time: string }> }> }>(
+    `/${igId}/insights`,
+    { access_token: token, metric: "reach", period: "day", since: String(since), until: String(until) }
+  );
+  const series = data.data?.find((m) => m.name === "reach")?.values ?? [];
+  return series.map((v) => {
+    const endTime = Math.floor(new Date(v.end_time).getTime() / 1000);
+    return { day: dayOfPeriod(endTime), endTime, reach: v.value ?? 0 };
+  });
+}
+
+/**
+ * Totais de um dia fechado.
+ *
+ * A janela sai do `end_time` que a série de alcance devolveu, então cai na
+ * fronteira de dia do fuso do perfil sem chute. A API agrega todo período cujo
+ * `end_time` cai em `[since, until]` — inclusive nas duas pontas —, por isso o
+ * `since` entra 1s depois da fronteira anterior: com `end - 86400` viriam dois
+ * dias somados.
+ */
+export async function getAccountDayDetail(igId: string, token: string, endTime: number): Promise<DayTotals> {
+  try {
+    return readTotals(
+      await graph<TotalValueResponse>(`/${igId}/insights`, {
+        access_token: token,
+        metric: DAY_METRICS,
+        period: "day",
+        metric_type: "total_value",
+        since: String(endTime - 86_399),
+        until: String(endTime),
+      })
+    );
+  } catch {
+    return emptyTotals();
+  }
+}
+
+/**
+ * Dia (YYYY-MM-DD) a que pertence um período que termina em `endTime`.
+ * O `end_time` da Meta é a meia-noite *seguinte* no fuso do perfil; recuar 12h
+ * cai no meio do dia certo em qualquer fuso.
+ */
+export function dayOfPeriod(endTime: number): string {
+  return new Date((endTime - 43_200) * 1000).toISOString().slice(0, 10);
+}
+
 /**
  * Inscreve a conta nos eventos de webhook (comentários, mensagens, menções).
  * Sem isso, o Instagram não envia NENHUM evento — nem comentário nem DM.
