@@ -12,6 +12,7 @@ import {
   BarChart, Bar, LineChart, Line,
 } from "recharts";
 import { cn, Badge, Button, PlatformChip, Avatar, fmt, timeAgo, POST_STATUS } from "@/components/ui";
+import { MediaThumb } from "@/components/media-thumb";
 import { useWorkspace } from "@/components/workspace-context";
 import { useComposer } from "@/components/composer";
 import type { Post } from "@/lib/types";
@@ -145,8 +146,7 @@ export default function DashboardPage() {
               {!loading && upcoming.map((p) => (
                 <Link key={p.id} href="/calendar" className="group flex items-center gap-3 rounded-xl px-1.5 py-1.5 transition hover:bg-surface-2">
                   {p.mediaUrls[0] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.mediaUrls[0]} alt="" className="h-11 w-11 rounded-lg object-cover" loading="lazy" />
+                    <MediaThumb url={p.mediaUrls[0]} className="h-11 w-11 rounded-lg object-cover" loading="lazy" />
                   ) : (
                     <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-surface-2 text-muted"><CalendarClock size={16} /></div>
                   )}

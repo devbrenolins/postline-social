@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, Overlay, panelCls } from "@/components/ui";
+import { MediaThumb } from "@/components/media-thumb";
 import type { Post, MediaItem, PlatformT, PublishOptions } from "@/lib/types";
 import { useWorkspace } from "@/components/workspace-context";
 import {
@@ -235,8 +236,13 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
         if (target === "publish") await fetch(`/api/posts/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "publish" }) });
       } else {
         const res = await fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Falha ao publicar.");
+        // Quando a própria Vercel derruba a função (502/504), o corpo vem em
+        // HTML e o `json()` estourava com "Unexpected token '<'" — mensagem que
+        // escondia a causa real. Sem parse cru: ou é JSON nosso, ou é a
+        // plataforma, e a mensagem diz qual dos dois.
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || `Falha ao publicar (HTTP ${res.status} — a função foi interrompida antes de responder).`);
+        if (!data?.post?.id) throw new Error("Resposta inesperada do servidor ao salvar a publicação.");
         id = data.post.id;
       }
       // A regra só pode ser gravada depois que a publicação tem id.
@@ -802,8 +808,7 @@ function isVertical(format: string) {
 
 function MediaBox({ url, className, empty = "Pré-visualização de mídia" }: { url?: string; className: string; empty?: string }) {
   if (url) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={url} alt="" className={cn("w-full object-cover", className)} />;
+    return <MediaThumb url={url} className={cn("w-full object-cover", className)} />;
   }
   return (
     <div className={cn("flex w-full flex-col items-center justify-center gap-2 bg-surface-2 text-muted", className)}>
@@ -961,8 +966,7 @@ function PhonePreview({ variant, accountName, handle, color, caption, mediaUrls,
             </p>
             {mediaUrls[0] && (
               <div className="mt-2.5 overflow-hidden rounded-xl border border-border">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={mediaUrls[0]} alt="" className="aspect-video w-full object-cover" />
+                <MediaThumb url={mediaUrls[0]} className="aspect-video w-full object-cover" />
               </div>
             )}
             <div className="mt-2.5 flex items-center justify-between text-muted">
@@ -1079,8 +1083,7 @@ function MediaPicker({ selected, onToggle, onClose }: { selected: string[]; onTo
             return (
               <button key={m.id} type="button" onClick={() => onToggle(m.url)}
                 className={cn("group relative aspect-square overflow-hidden rounded-xl border-2 transition", isSel ? "border-accent" : "border-transparent hover:border-border-strong")}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={m.url} alt={m.name} className="h-full w-full object-cover" loading="lazy" />
+                <MediaThumb url={m.url} alt={m.name} className="h-full w-full object-cover" loading="lazy" />
                 {isSel && (
                   <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white">
                     <Check size={12} strokeWidth={3} />

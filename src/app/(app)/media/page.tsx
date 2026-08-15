@@ -4,9 +4,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Folder as FolderIcon, FolderPlus, Heart, Images, Search, Star, Trash2, Upload,
-  LayoutGrid, RotateCcw, Tag, X, Check, ImagePlus, Clock,
+  LayoutGrid, RotateCcw, Tag, X, Check, ImagePlus, Clock, Play,
 } from "lucide-react";
 import { cn, Button, Badge, Modal, EmptyState, inputCls, labelCls, Dropdown, fmt, timeAgo } from "@/components/ui";
+import { MediaThumb, isVideoUrl } from "@/components/media-thumb";
 import type { MediaItem, Folder } from "@/lib/types";
 import { uploadMedia } from "@/lib/upload-client";
 import { toast } from "sonner";
@@ -164,8 +165,12 @@ export default function MediaPage() {
                   className={cn("group relative aspect-square cursor-pointer overflow-hidden rounded-2xl border border-border bg-surface", m.trashedAt && "opacity-70")}
                   onClick={() => setSelected(m)}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={m.url} alt={m.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" loading="lazy" />
+                  <MediaThumb url={m.url} alt={m.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" loading="lazy" />
+                  {isVideoUrl(m.url) && (
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="rounded-full bg-black/45 p-2 text-white backdrop-blur-sm"><Play size={14} fill="currentColor" /></span>
+                    </span>
+                  )}
                   {m.isFavorite && <span className="absolute left-2 top-2 rounded-md bg-black/55 p-1 text-amber-300"><Star size={11} fill="currentColor" /></span>}
                   <div className="absolute inset-x-0 bottom-0 translate-y-1 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-2.5 pt-8 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
                     <p className="truncate text-[11.5px] font-medium text-white">{m.name}</p>
@@ -246,8 +251,7 @@ function MediaDetail({ item, folders, onClose, onPatch, onDelete }: {
     <Modal open={!!item} onClose={onClose} width="max-w-3xl">
       <div className="grid grid-cols-1 sm:grid-cols-2">
         <div className="flex items-center justify-center bg-surface-2/50 p-5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={item.url} alt={item.name} className="max-h-105 w-auto rounded-xl object-contain" />
+          <MediaThumb url={item.url} alt={item.name} className="max-h-105 w-auto rounded-xl object-contain" controls />
         </div>
         <div className="space-y-4 p-5">
           <div>

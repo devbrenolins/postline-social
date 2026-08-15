@@ -174,8 +174,16 @@ function translate(code: string | undefined, message: string | undefined, status
       return "Esta conta não autorizou a permissão necessária. Reconecte a conta do TikTok para conceder as permissões atuais.";
     case "rate_limit_exceeded":
       return "Limite de uso da API do TikTok atingido. Tente mais tarde.";
+    case "unaudited_client_can_only_post_to_private_accounts":
+      // Enquanto o app não passa pela auditoria do TikTok, não basta escolher
+      // "Somente eu" na publicação: a **conta** precisa estar configurada como
+      // privada no app do TikTok. Com conta pública o envio é recusado mesmo
+      // com privacy_level SELF_ONLY.
+      return "O app ainda não passou pela auditoria do TikTok e só publica em contas privadas. Deixe a conta @privada nas configurações do TikTok (Privacidade → Conta privada) ou submeta o app para auditoria.";
     default:
-      return message || `Falha na API do TikTok (${code || status}).`;
+      // O código cru importa: sem ele, mensagens genéricas do TikTok (como o
+      // link de guidelines) não dizem qual regra foi violada.
+      return message ? `${message}${code ? ` (${code})` : ""}` : `Falha na API do TikTok (${code || status}).`;
   }
 }
 

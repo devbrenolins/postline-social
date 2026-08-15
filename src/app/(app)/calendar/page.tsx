@@ -20,6 +20,7 @@ import { useWorkspace } from "@/components/workspace-context";
 import { useComposer } from "@/components/composer";
 import { toast } from "sonner";
 import { PLATFORM_META } from "@/components/ui";
+import { MediaThumb } from "@/components/media-thumb";
 
 type View = "month" | "list" | "kanban";
 
@@ -218,8 +219,7 @@ function MonthView({ cursor, posts, onSelect, onDropPost, onNew, dragOverDay, se
                       style={p.status !== "published" ? { background: `${clientColor(p.clientId) ?? "#8a8fa3"}14`, borderColor: `${clientColor(p.clientId) ?? "#8a8fa3"}30` } : undefined}
                     >
                       {p.mediaUrls[0] ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.mediaUrls[0]} alt="" className="h-5 w-5 shrink-0 rounded-[5px] object-cover" loading="lazy" />
+                        <MediaThumb url={p.mediaUrls[0]} className="h-5 w-5 shrink-0 rounded-[5px] object-cover" loading="lazy" />
                       ) : <span className="h-5 w-5 shrink-0 rounded-[5px] bg-surface-2" />}
                       <span className="hidden min-w-0 flex-1 sm:block">
                         <span className="block truncate text-[10.5px] font-medium leading-tight">{p.caption || "Sem legenda"}</span>
@@ -286,8 +286,7 @@ function ListRow({ post, when, onClick, color }: { post: Post; when: string | nu
     <button onClick={onClick} className="flex w-full items-center gap-3.5 border-b border-border px-4 py-3 text-left transition last:border-b-0 hover:bg-surface-2/60">
       <span className="h-10 w-1 shrink-0 rounded-full" style={{ background: color ?? "var(--border-strong)" }} />
       {post.mediaUrls[0] ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={post.mediaUrls[0]} alt="" className="h-11 w-11 rounded-lg object-cover" loading="lazy" />
+        <MediaThumb url={post.mediaUrls[0]} className="h-11 w-11 rounded-lg object-cover" loading="lazy" />
       ) : <span className="h-11 w-11 rounded-lg bg-surface-2" />}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium">{post.caption || "Sem legenda"}</span>
@@ -357,8 +356,7 @@ function KanbanView({ posts, onSelect, onDropPost, onNew }: {
                   )}
                 >
                   {p.mediaUrls[0] && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.mediaUrls[0]} alt="" className="aspect-[16/8] w-full object-cover" loading="lazy" />
+                    <MediaThumb url={p.mediaUrls[0]} className="aspect-[16/8] w-full object-cover" loading="lazy" />
                   )}
                   <div className="p-3">
                     <p className="line-clamp-2 text-[12.5px] leading-snug">{p.caption || "Sem legenda"}</p>
@@ -395,8 +393,7 @@ function PostDetail({ post, onClose, onEdit, onPatch, clientName }: {
       <div className="grid grid-cols-1 sm:grid-cols-[220px_1fr]">
         <div className="bg-surface-2/60 p-4">
           {post.mediaUrls[0] ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={post.mediaUrls[0]} alt="" className="aspect-square w-full rounded-xl object-cover" />
+            <MediaThumb url={post.mediaUrls[0]} className="aspect-square w-full rounded-xl object-cover" />
           ) : (
             <div className="flex aspect-square w-full items-center justify-center rounded-xl bg-surface-2 text-muted"><LayoutGrid size={22} /></div>
           )}
