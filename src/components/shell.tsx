@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, CalendarDays, Images, Inbox, BarChart3, Briefcase, Users, Settings,
   Plus, Search, Bell, Sun, Moon, Menu, ChevronDown, LogOut, CheckCheck, Sparkles,
-  UserRound, MonitorSmartphone, CornerDownLeft, Command as CommandIcon,
+  UserRound, MonitorSmartphone, CornerDownLeft,
   BrainCircuit, Coins, Aperture, Music2,
 } from "lucide-react";
 import { cn, Logo, Avatar, Dropdown, Button, timeAgo, useScrollLock, Overlay, panelCls } from "@/components/ui";
@@ -315,7 +315,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
           >
             <Search size={14} />
             <span className="w-28 text-left">Busca rápida…</span>
-            <span className="flex items-center gap-0.5 rounded-md border border-border bg-background px-1.5 py-0.5 text-[10.5px]"><CommandIcon size={9} />K</span>
+            <kbd className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10.5px] font-semibold">K</kbd>
           </button>
           <button onClick={() => setPalette(true)} className="rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground sm:hidden" aria-label="Buscar">
             <Search size={17} />
@@ -504,19 +504,13 @@ function Shortcuts() {
     let gPending = false;
     let gTimer: ReturnType<typeof setTimeout>;
     const fn = (e: KeyboardEvent) => {
-      // Ctrl/Cmd+K precisa vir antes de tudo: vale mesmo com o foco dentro de um
-      // campo, e a checagem de modificador logo abaixo descartaria o atalho.
-      // `code` cobre teclados onde `key` muda com o modificador.
-      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "k" || e.code === "KeyK")) {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent("postline:open-search"));
-        return;
-      }
-
+      // Estas duas guardas anulam os atalhos enquanto a pessoa digita e quando
+      // há modificador — sem isso, escrever "kkk" numa legenda abriria a busca.
       const target = e.target as HTMLElement;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "c") { e.preventDefault(); openComposer(); }
+      if (e.key === "k") { e.preventDefault(); window.dispatchEvent(new CustomEvent("postline:open-search")); }
       if (e.key === "g") { gPending = true; clearTimeout(gTimer); gTimer = setTimeout(() => (gPending = false), 800); return; }
       if (gPending) {
         gPending = false;
