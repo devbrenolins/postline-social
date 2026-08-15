@@ -474,11 +474,21 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
                   </p>
                 )}
 
-                {/* Texto exigido literalmente pelas diretrizes do TikTok. */}
+                {/*
+                  Texto exigido literalmente pelas diretrizes do TikTok — em
+                  inglês e com as políticas como link, não como texto puro: o
+                  App Review confere se o usuário consegue abrir cada uma antes
+                  de publicar.
+                */}
                 <p className="text-[11px] text-muted">
-                  {options.tiktok?.brandedContent
-                    ? "By posting, you agree to TikTok's Branded Content Policy and Music Usage Confirmation."
-                    : "By posting, you agree to TikTok's Music Usage Confirmation."}
+                  By posting, you agree to TikTok&apos;s{" "}
+                  {options.tiktok?.brandedContent && (
+                    <>
+                      <PoliticaLink href="https://www.tiktok.com/legal/page/global/bc-policy/en">Branded Content Policy</PoliticaLink>
+                      {" and "}
+                    </>
+                  )}
+                  <PoliticaLink href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en">Music Usage Confirmation</PoliticaLink>.
                 </p>
                 <p className="text-[11px] text-muted">
                   Depois de publicar, o TikTok pode levar alguns minutos processando até o conteúdo aparecer no perfil.
@@ -804,6 +814,16 @@ type PreviewProps = {
 /** Formatos que ocupam a tela inteira em 9:16. */
 function isVertical(format: string) {
   return format === "story" || format === "reel";
+}
+
+/** Link para as políticas do TikTok: abre fora e sublinhado, para o revisor
+ * enxergar que é clicável. */
+function PoliticaLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-fg">
+      {children}
+    </a>
+  );
 }
 
 function MediaBox({ url, className, empty = "Pré-visualização de mídia" }: { url?: string; className: string; empty?: string }) {
