@@ -12,6 +12,10 @@ const PUBLIC_PREFIXES = [
   "/api/auth",
   "/api/meta/webhook",
   "/api/meta/data-deletion",
+  // O webhook do TikTok se protege pela assinatura HMAC, não por sessão. Sem
+  // estar aqui, o middleware devolvia 307 para /login — e como o 307 preserva
+  // o método, o POST batia numa página e virava 405 do lado do TikTok.
+  "/api/tiktok/webhook",
   "/api/health",
   // Chamadas de fora do navegador, sem cookie de sessão: cada uma se protege
   // pelo próprio segredo (CRON_SECRET, ADMIN_SECRET). Sem estarem aqui, o

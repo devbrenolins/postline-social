@@ -16,6 +16,15 @@ import { verifyWebhookSignature, parseWebhookEvent } from "@/lib/tiktok";
  * 200 **sempre** que a assinatura confere, mesmo para evento que não sabemos
  * tratar. Um erro nosso faria o TikTok reentregar por até 72h.
  */
+/**
+ * Algumas validações de endpoint chegam por GET antes do primeiro evento.
+ * Responder 200 aqui não expõe nada e evita que a URL seja marcada como
+ * inválida no portal.
+ */
+export async function GET() {
+  return NextResponse.json({ ok: true });
+}
+
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   if (!verifyWebhookSignature(raw, req.headers.get("tiktok-signature"))) {
