@@ -138,6 +138,8 @@ export async function refreshLongLivedToken(token: string): Promise<string> {
 
 export type DiscoveredAccount = {
   igId: string;
+  /** ID app-scoped — o que a Meta usa no `entry.id` de alguns webhooks. */
+  appScopedId: string | null;
   username: string;
   name: string;
   followers: number;
@@ -162,8 +164,12 @@ export async function getSelfAccount(token: string, fallbackId?: string): Promis
   });
   const igId = me.user_id || me.id || fallbackId;
   if (!igId) throw new Error("Não foi possível identificar a conta Instagram.");
+  // `user_id` é o ID da conta profissional e `id` é o app-scoped. São números
+  // diferentes e a Meta usa um ou outro conforme o endpoint — guardamos os dois.
+  const appScoped = me.id && me.id !== igId ? me.id : fallbackId && fallbackId !== igId ? fallbackId : null;
   return {
     igId: String(igId),
+    appScopedId: appScoped ? String(appScoped) : null,
     username: me.username ?? "",
     name: me.name || me.username || "",
     followers: me.followers_count ?? 0,

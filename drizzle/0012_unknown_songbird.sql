@@ -1,0 +1,1 @@
+ALTER TABLE "social_accounts" ADD COLUMN "app_scoped_id" varchar(80);

@@ -149,6 +149,13 @@ export const socialAccounts = pgTable(
     // Integração oficial (Instagram Graph API / Meta)
     provider: varchar("provider", { length: 24 }).default("meta"), // meta | manual
     externalId: varchar("external_id", { length: 64 }), // IG Business account id
+    /**
+     * ID app-scoped da conta — o "ID do usuário" que aparece no app do
+     * Instagram. É diferente do `external_id` e é o que a Meta pode mandar no
+     * `entry.id` do webhook; sem ele o evento não casa com conta nenhuma e é
+     * descartado em silêncio.
+     */
+    appScopedId: varchar("app_scoped_id", { length: 80 }),
     pageId: varchar("page_id", { length: 64 }), // Facebook Page vinculada
     avatarUrl: text("avatar_url"),
     accessToken: text("access_token"), // long-lived token da conta/página

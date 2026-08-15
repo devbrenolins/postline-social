@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { directAutomations, socialAccounts, inboxItems, notifications, posts } from "@/db/schema";
 import { verifyMetaSignature } from "@/lib/meta";
@@ -54,14 +54,30 @@ export async function POST(req: NextRequest) {
     if (!igId) continue;
 
     // Descobre a conta (workspace + token) que recebeu a mensagem.
+    //
+    // O `entry.id` pode vir como ID da conta profissional **ou** como ID
+    // app-scoped, dependendo do evento — são números diferentes para a mesma
+    // conta. Casar só por um deles fazia o webhook devolver 200 e descartar o
+    // evento em silêncio: a Meta via sucesso e nunca reenviava.
     const account = (
       await db
         .select()
         .from(socialAccounts)
-        .where(and(eq(socialAccounts.externalId, igId), eq(socialAccounts.connected, true), isNull(socialAccounts.deletedAt)))
+        .where(
+          and(
+            or(eq(socialAccounts.externalId, igId), eq(socialAccounts.appScopedId, igId)),
+            eq(socialAccounts.connected, true),
+            isNull(socialAccounts.deletedAt)
+          )
+        )
         .limit(1)
     )[0];
     if (!account?.accessToken) continue;
+
+    // Guarda o ID que a Meta usou, para a conta passar a casar pelos dois.
+    if (igId !== account.externalId && account.appScopedId !== igId) {
+      await db.update(socialAccounts).set({ appScopedId: igId, updatedAt: new Date() }).where(eq(socialAccounts.id, account.id));
+    }
 
     const rules = await db
       .select()
