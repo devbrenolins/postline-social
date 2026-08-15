@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { activityLogs, notifications } from "@/db/schema";
+import { activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { publishPost } from "@/lib/publishing";
+import { notifyUser } from "@/lib/push";
 
 export const maxDuration = 60;
 
@@ -25,11 +26,15 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       entity: "post",
       entityId: id,
     });
-    await db.insert(notifications).values({
+    // `notifyUser` grava o registro **e** manda push para os aparelhos — antes
+    // isto inseria direto na tabela, então o aviso só aparecia se a pessoa
+    // estivesse com o app aberto.
+    await notifyUser(user.id, {
       workspaceId: user.workspaceId,
       title: status === "published" ? "Post publicado" : "Falha ao publicar",
-      body: results.map((r) => `@${r.account}: ${r.ok ? "ok" : r.error}`).join(" · "),
+      body: results.map((r) => `@${r.account}: ${r.ok ? (r.error ?? "publicado") : r.error}`).join(" · "),
       kind: status === "published" ? "success" : "warning",
+      url: "/calendar",
     });
 
     return NextResponse.json({ ok: status === "published", status, results }, { status: status === "published" ? 200 : 502 });

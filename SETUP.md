@@ -397,10 +397,31 @@ que perder a publicação inteira.
 - Acompanhar o processamento até `PUBLISH_COMPLETE` ou `FAILED`, traduzindo o
   motivo da falha
 
-### O que não faz
+### Webhook (status da publicação)
 
-- Métricas por vídeo: exigem escopo e auditoria adicionais. Por isso o TikTok
-  aparece só na contagem de seguidores, não nos gráficos de Análises.
+No portal, aponte o webhook para:
+
+```
+https://SEU_DOMINIO/api/tiktok/webhook
+```
+
+O TikTok assina cada chamada no cabeçalho `TikTok-Signature: t=<epoch>,s=<hmac>`,
+com HMAC-SHA256 de `timestamp + "." + corpo cru` usando o **client secret**.
+Conferimos assinatura e idade do evento (5 min de tolerância).
+
+Eventos tratados: `video.publish.completed` e `video.upload.failed`. Cada um
+vira notificação com push para quem agendou o post. O TikTok garante "ao menos
+uma entrega", então os avisos são deduplicados por evento.
+
+> Responder 200 é obrigatório mesmo em evento desconhecido: sem isso o TikTok
+> reentrega por até 72h.
+
+### Vídeos publicados (`video.list`)
+
+A tela **Vídeos do TikTok** lista as publicações reais da conta, com capa,
+duração e link. As métricas (views, curtidas, comentários, compartilhamentos)
+são pedidas junto; se a conta não tiver acesso a esses campos, a listagem cai
+para o conjunto básico e a tela omite os números em vez de mostrar zeros.
 
 ---
 

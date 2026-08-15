@@ -16,6 +16,7 @@
 import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { createHmac, timingSafeEqual } from "crypto";
 
 const AUTHORIZE = "https://www.tiktok.com/v2/auth/authorize/";
 const API = "https://open.tiktokapis.com/v2";
@@ -24,7 +25,20 @@ const API = "https://open.tiktokapis.com/v2";
  * `video.publish` publica direto no perfil; `video.upload` só manda para o
  * rascunho do app. Pedimos o primeiro — o segundo não serve para agendamento.
  */
-export const TIKTOK_SCOPES = ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish"];
+export const TIKTOK_SCOPES = ["user.info.basic", "user.info.profile", "user.info.stats", "video.upload", "video.publish"];
+
+/**
+ * O TikTok tem dois modos de envio, e o app usa o que a conta concedeu:
+ *
+ * - `video.publish` (Direct Post): publica direto no perfil. Exige que o
+ *   usuário escolha a privacidade e ver as declarações obrigatórias.
+ * - `video.upload`: manda para a caixa de entrada do TikTok como rascunho. O
+ *   usuário conclui dentro do app — e a legenda **não** viaja junto, porque a
+ *   inicialização só aceita `source_info`.
+ */
+export function canDirectPost(scopes: string[] | null | undefined) {
+  return (scopes ?? []).includes("video.publish");
+}
 
 function clientKey() {
   return process.env.TIKTOK_CLIENT_KEY || "";
@@ -313,6 +327,23 @@ export async function postPhotos(token: string, photoUrls: string[], privacy: Pr
   return data.publish_id;
 }
 
+/**
+ * Envia o vídeo para a caixa de entrada do criador (modo `video.upload`).
+ *
+ * Não leva legenda nem privacidade: a inicialização aceita apenas
+ * `source_info`. O usuário recebe uma notificação no TikTok e conclui a
+ * publicação por lá.
+ */
+export async function uploadVideoToInbox(token: string, videoUrl: string): Promise<string> {
+  const data = await call<{ publish_id?: string }>("/post/publish/inbox/video/init/", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify({ source_info: { source: "PULL_FROM_URL", video_url: videoUrl } }),
+  });
+  if (!data.publish_id) throw new Error("O TikTok não devolveu o id do envio.");
+  return data.publish_id;
+}
+
 export type PublishStatus = { status: string; failReason: string | null; postIds: string[] };
 
 /** Estado de uma publicação. O envio é assíncrono: `init` só enfileira. */
@@ -328,6 +359,118 @@ export async function getPublishStatus(token: string, publishId: string): Promis
     // O campo tem esse nome (com o typo) na API do TikTok.
     postIds: (data.publicaly_available_post_id as string[]) ?? [],
   };
+}
+
+export type TikTokVideo = {
+  id: string;
+  title: string;
+  description: string;
+  coverUrl: string | null;
+  shareUrl: string;
+  embedLink: string;
+  durationSeconds: number;
+  createdAt: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  views: number;
+};
+
+/** Campos confirmados na documentação da Display API. */
+const VIDEO_FIELDS_BASE = "id,title,video_description,duration,cover_image_url,share_url,embed_link,create_time";
+/** Métricas: a doc não as lista nos exemplos, então pedimos e caímos fora se recusar. */
+const VIDEO_FIELDS_METRICS = `${VIDEO_FIELDS_BASE},like_count,comment_count,share_count,view_count`;
+
+/**
+ * Vídeos publicados na conta (escopo `video.list`).
+ *
+ * Tenta primeiro com as métricas; se a API recusar algum campo, refaz com o
+ * conjunto básico em vez de devolver a lista vazia.
+ */
+export async function getVideoList(token: string, limit = 20): Promise<TikTokVideo[]> {
+  const buscar = async (fields: string) =>
+    call<{ videos?: Array<Record<string, unknown>> }>(`/video/list/?fields=${fields}`, token, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ max_count: Math.min(limit, 20) }),
+    });
+
+  let data;
+  try {
+    data = await buscar(VIDEO_FIELDS_METRICS);
+  } catch {
+    data = await buscar(VIDEO_FIELDS_BASE);
+  }
+
+  return (data.videos ?? []).map((v) => ({
+    id: String(v.id ?? ""),
+    title: String(v.title ?? ""),
+    description: String(v.video_description ?? ""),
+    coverUrl: (v.cover_image_url as string) ?? null,
+    shareUrl: String(v.share_url ?? ""),
+    embedLink: String(v.embed_link ?? ""),
+    durationSeconds: Number(v.duration ?? 0),
+    // `create_time` vem em epoch de segundos.
+    createdAt: v.create_time ? new Date(Number(v.create_time) * 1000).toISOString() : "",
+    likes: Number(v.like_count ?? 0),
+    comments: Number(v.comment_count ?? 0),
+    shares: Number(v.share_count ?? 0),
+    views: Number(v.view_count ?? 0),
+  }));
+}
+
+/**
+ * Confere a assinatura do webhook do TikTok.
+ *
+ * Cabeçalho `TikTok-Signature: t=<epoch>,s=<hmac>`, onde o HMAC-SHA256 é
+ * calculado sobre `timestamp + "." + corpo cru`, com o client secret como
+ * chave. O corpo precisa ser o texto original — reserializar o JSON muda os
+ * bytes e derruba a conferência.
+ */
+export function verifyWebhookSignature(rawBody: string, header: string | null, toleranceSeconds = 300): boolean {
+  const secret = clientSecret();
+  if (!secret || !header) return false;
+
+  const partes = Object.fromEntries(header.split(",").map((p) => p.split("=").map((x) => x.trim()) as [string, string]));
+  const t = partes.t;
+  const s = partes.s;
+  if (!t || !s) return false;
+
+  // Rejeita evento antigo demais: sem isso, uma requisição capturada poderia
+  // ser reenviada indefinidamente.
+  const idade = Math.abs(Date.now() / 1000 - Number(t));
+  if (!Number.isFinite(idade) || idade > toleranceSeconds) return false;
+
+  const esperado = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+  const a = Buffer.from(esperado);
+  const b = Buffer.from(s);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export type WebhookEvent = { event: string; userOpenId: string; shareId: string | null; createdAt: number };
+
+/** Normaliza o evento. O campo `content` chega como **string** JSON, não objeto. */
+export function parseWebhookEvent(rawBody: string): WebhookEvent | null {
+  try {
+    const payload = JSON.parse(rawBody) as { event?: string; user_openid?: string; content?: string; create_time?: number };
+    if (!payload.event) return null;
+    let shareId: string | null = null;
+    if (payload.content) {
+      try {
+        shareId = (JSON.parse(payload.content) as { share_id?: string }).share_id ?? null;
+      } catch {
+        shareId = null;
+      }
+    }
+    return {
+      event: payload.event,
+      userOpenId: payload.user_openid ?? "",
+      shareId,
+      createdAt: Number(payload.create_time ?? 0),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Mensagens dos motivos de falha que o TikTok devolve. */

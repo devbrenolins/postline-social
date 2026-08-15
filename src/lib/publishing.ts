@@ -269,8 +269,18 @@ async function publishToTikTok(accounts: Account[], job: PublishJob): Promise<{ 
   }
 
   for (const acc of accounts) {
+    // Modo de envio conforme o escopo que a conta concedeu.
+    const direto = tiktok.canDirectPost(acc.scopes);
     try {
       const publishId = await tiktok.withFreshToken(acc, async (token) => {
+        if (!direto) {
+          // `video.upload`: só vídeo, sem legenda e sem privacidade — quem
+          // conclui é o usuário, dentro do TikTok.
+          const video = job.mediaUrls.find(isVideo);
+          if (!video) throw new Error("Sem o escopo video.publish, o TikTok aceita apenas vídeo enviado para a caixa de entrada.");
+          return tiktok.uploadVideoToInbox(token, video);
+        }
+
         // O TikTok recusa `privacy_level` que a conta não ofereça, então a
         // consulta ao criador não é opcional.
         const info = await tiktok.getCreatorInfo(token);
@@ -300,7 +310,10 @@ async function publishToTikTok(accounts: Account[], job: PublishJob): Promise<{ 
 
       const final = await aguardarTikTok(acc, publishId);
       if (final.ok) {
-        results.push({ account: acc.handle, ok: true, mediaId: final.postId || publishId, error: final.aviso });
+        const aviso = direto
+          ? final.aviso
+          : "Enviado para a caixa de entrada do TikTok. Abra o app, escreva a legenda e conclua a publicação.";
+        results.push({ account: acc.handle, ok: true, mediaId: final.postId || publishId, error: aviso });
         media.push({ socialAccountId: acc.id, mediaId: final.postId || publishId });
       } else {
         results.push({ account: acc.handle, ok: false, error: final.erro });

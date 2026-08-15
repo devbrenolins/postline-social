@@ -9,7 +9,7 @@ import {
   LayoutDashboard, CalendarDays, Images, Inbox, BarChart3, Briefcase, Users, Settings,
   Plus, Search, Bell, Sun, Moon, Menu, ChevronDown, LogOut, CheckCheck, Sparkles,
   UserRound, MonitorSmartphone, CornerDownLeft, Command as CommandIcon,
-  BrainCircuit, Coins, Aperture,
+  BrainCircuit, Coins, Aperture, Music2,
 } from "lucide-react";
 import { cn, Logo, Avatar, Dropdown, Button, timeAgo, useScrollLock, Overlay, panelCls } from "@/components/ui";
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context";
@@ -30,6 +30,7 @@ const NAV = [
   { href: "/studio", label: "IA & Automação", icon: BrainCircuit },
   { section: "Análise" },
   { href: "/instagram", label: "Feed do Instagram", icon: Aperture },
+  { href: "/tiktok", label: "Vídeos do TikTok", icon: Music2 },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { section: "Gestão" },
   { href: "/planos", label: "Planos e créditos", icon: Coins },

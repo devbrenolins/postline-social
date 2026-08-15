@@ -4,6 +4,7 @@ import { posts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { publishPost } from "@/lib/publishing";
 import { sanitizePublishOptions } from "@/lib/publish-options";
+import { notifyUser } from "@/lib/push";
 import { and, desc, asc, eq, isNull, isNotNull, sql, SQL } from "drizzle-orm";
 
 // Publicar no Instagram envolve esperar o container processar; evita que a
@@ -82,6 +83,15 @@ export async function POST(req: NextRequest) {
       // Sem isto o cliente recebia 502 sem motivo nenhum: o erro real ficava
       // só dentro de `results` e a interface não tinha o que mostrar.
       const motivo = results.filter((r) => !r.ok).map((r) => `${r.account}: ${r.error}`).join(" · ");
+
+      // Mesmo aviso da publicação avulsa: registro + push no aparelho.
+      await notifyUser(user.id, {
+        workspaceId: user.workspaceId,
+        title: pubStatus === "published" ? "Post publicado" : "Falha ao publicar",
+        body: results.map((r) => `@${r.account}: ${r.ok ? (r.error ?? "publicado") : r.error}`).join(" · "),
+        kind: pubStatus === "published" ? "success" : "warning",
+        url: "/calendar",
+      });
       return NextResponse.json(
         { post: fresh ?? post, results, ...(pubStatus === "published" ? {} : { error: motivo || "Falha ao publicar." }) },
         { status: pubStatus === "published" ? 201 : 502 }
