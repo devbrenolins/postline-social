@@ -76,9 +76,21 @@ export async function POST(req: NextRequest) {
     }
 
     case "disconnect": {
+      // Apaga as credenciais, não só marca como desconectada: é o que
+      // prometemos nas revisões das plataformas ("disconnecting deletes the
+      // stored tokens"). O refresh token precisa ir junto — sem isso a conta
+      // continuaria renovável a partir do banco.
       await db
         .update(socialAccounts)
-        .set({ connected: false, accessToken: null, deletedAt: new Date(), updatedAt: new Date() })
+        .set({
+          connected: false,
+          accessToken: null,
+          refreshToken: null,
+          tokenExpiresAt: null,
+          scopes: [],
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        })
         .where(and(eq(socialAccounts.id, String(body.id)), eq(socialAccounts.workspaceId, wid)));
       return NextResponse.json({ ok: true });
     }

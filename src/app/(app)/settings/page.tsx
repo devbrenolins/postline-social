@@ -238,8 +238,33 @@ function NotificationsTab() {
 
 /* ------------------------------- Integrations ------------------------------- */
 function IntegrationsTab() {
-  const { data: ws } = useWorkspace();
+  const { data: ws, refetch } = useWorkspace();
   const connected = new Set((ws?.accounts ?? []).map((a) => a.platform));
+  const [desconectando, setDesconectando] = useState<string | null>(null);
+
+  /**
+   * Desconectar apaga o token no servidor. É exigência das revisões do
+   * Instagram, do X e do TikTok — todas prometem que o usuário pode revogar
+   * quando quiser — e o revisor testa isso.
+   */
+  async function desconectar(id: string, nome: string, handle?: string) {
+    if (!window.confirm(`Desconectar ${handle ? "@" + handle : nome}? Os posts agendados para esta conta deixam de publicar.`)) return;
+    setDesconectando(id);
+    try {
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "disconnect", id }),
+      });
+      if (!res.ok) throw new Error("Falha ao desconectar.");
+      toast.success(`${nome} desconectado.`);
+      await refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao desconectar.");
+    } finally {
+      setDesconectando(null);
+    }
+  }
   return (
     <Card title="Redes sociais" sub="Conecte perfis para publicar e coletar métricas">
       <div className="space-y-2.5">
@@ -273,6 +298,16 @@ function IntegrationsTab() {
                 </p>
               </div>
               {isConn ? <Badge tone="success">Conectado</Badge> : <Badge>Inativo</Badge>}
+              {isConn && acc && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={desconectando === acc.id}
+                  onClick={() => desconectar(acc.id, PLATFORM_META[p].name, acc.handle)}
+                >
+                  Desconectar
+                </Button>
+              )}
               <Button
                 variant={isConn ? "outline" : "soft"}
                 size="sm"
