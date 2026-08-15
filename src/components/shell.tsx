@@ -288,6 +288,14 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // O atalho é capturado em <Shortcuts/>, que não alcança este estado —
+  // a ponte é um evento, como nos demais avisos globais do app.
+  useEffect(() => {
+    const fn = () => setPalette(true);
+    window.addEventListener("postline:open-search", fn);
+    return () => window.removeEventListener("postline:open-search", fn);
+  }, []);
+
   const unread = data?.notifications.filter((n) => !n.read) ?? [];
 
   return (
@@ -496,6 +504,15 @@ function Shortcuts() {
     let gPending = false;
     let gTimer: ReturnType<typeof setTimeout>;
     const fn = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+K precisa vir antes de tudo: vale mesmo com o foco dentro de um
+      // campo, e a checagem de modificador logo abaixo descartaria o atalho.
+      // `code` cobre teclados onde `key` muda com o modificador.
+      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "k" || e.code === "KeyK")) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("postline:open-search"));
+        return;
+      }
+
       const target = e.target as HTMLElement;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
