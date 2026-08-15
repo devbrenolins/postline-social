@@ -27,11 +27,12 @@ const TOKEN = "https://api.x.com/2/oauth2/token";
 /** `offline.access` é o que garante o refresh token; sem ele a conta cai em 2h. */
 export const X_SCOPES = ["tweet.read", "tweet.write", "users.read", "media.write", "offline.access"];
 
+/** Com `trim()`: espaço colado junto no painel derruba a autenticação. */
 function clientId() {
-  return process.env.X_CLIENT_ID || "";
+  return (process.env.X_CLIENT_ID || "").trim();
 }
 function clientSecret() {
-  return process.env.X_CLIENT_SECRET || "";
+  return (process.env.X_CLIENT_SECRET || "").trim();
 }
 
 export function xOAuthConfigured() {

@@ -28,17 +28,26 @@ export async function GET() {
 
   if (accounts.length === 0) return NextResponse.json({ videos: [], noAccount: true });
 
-  const listas = await Promise.all(
+  const resultados = await Promise.all(
     accounts.map(async (acc) => {
       try {
         const videos = await withFreshToken(acc, (token) => getVideoList(token));
-        return videos.map((v) => ({ ...v, account: acc.handle }));
-      } catch {
-        return [];
+        return { videos: videos.map((v) => ({ ...v, account: acc.handle })), erro: null as string | null };
+      } catch (e) {
+        // Engolir o erro devolvia uma tela vazia idêntica à de "conta sem
+        // vídeos" — e o motivo real só aparecia consultando a API na mão.
+        const msg = e instanceof Error ? e.message : "Falha ao consultar o TikTok.";
+        return { videos: [], erro: `@${acc.handle}: ${msg}` };
       }
     })
   );
 
-  const videos = listas.flat().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  return NextResponse.json({ videos, fetchedAt: new Date().toISOString() });
+  const videos = resultados.flatMap((r) => r.videos).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const erros = resultados.map((r) => r.erro).filter(Boolean);
+
+  return NextResponse.json({
+    videos,
+    fetchedAt: new Date().toISOString(),
+    ...(erros.length > 0 ? { error: erros.join(" · ") } : {}),
+  });
 }

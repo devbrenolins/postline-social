@@ -25,7 +25,18 @@ const API = "https://open.tiktokapis.com/v2";
  * `video.publish` publica direto no perfil; `video.upload` só manda para o
  * rascunho do app. Pedimos o primeiro — o segundo não serve para agendamento.
  */
-export const TIKTOK_SCOPES = ["user.info.basic", "user.info.profile", "user.info.stats", "video.upload", "video.publish"];
+/**
+ * Precisa bater com os escopos aprovados no portal. Pedir um escopo que o app
+ * não tem faz o TikTok recusar a autorização inteira — não é ignorado.
+ */
+export const TIKTOK_SCOPES = [
+  "user.info.basic",
+  "user.info.profile",
+  "user.info.stats",
+  "video.list",
+  "video.upload",
+  "video.publish",
+];
 
 /**
  * O TikTok tem dois modos de envio, e o app usa o que a conta concedeu:
@@ -40,11 +51,16 @@ export function canDirectPost(scopes: string[] | null | undefined) {
   return (scopes ?? []).includes("video.publish");
 }
 
+/**
+ * Credenciais sempre com `trim()`: colar no painel da Vercel costuma levar
+ * espaço ou quebra de linha junto, e aí a plataforma recusa a chave sem dizer
+ * por quê — erro que só aparece em produção.
+ */
 function clientKey() {
-  return process.env.TIKTOK_CLIENT_KEY || "";
+  return (process.env.TIKTOK_CLIENT_KEY || "").trim();
 }
 function clientSecret() {
-  return process.env.TIKTOK_CLIENT_SECRET || "";
+  return (process.env.TIKTOK_CLIENT_SECRET || "").trim();
 }
 
 export function tiktokOAuthConfigured() {
@@ -147,8 +163,11 @@ function translate(code: string | undefined, message: string | undefined, status
     case "spam_risk_user_banned_from_posting":
       return "Esta conta está impedida de publicar pelo TikTok.";
     case "access_token_invalid":
-    case "scope_not_authorized":
       return "A autorização do TikTok expirou ou foi revogada. Reconecte a conta.";
+    case "scope_not_authorized":
+      // Acontece quando a conta foi conectada antes de o app pedir esse escopo:
+      // o token guardado carrega as permissões do momento da autorização.
+      return "Esta conta não autorizou a permissão necessária. Reconecte a conta do TikTok para conceder as permissões atuais.";
     case "rate_limit_exceeded":
       return "Limite de uso da API do TikTok atingido. Tente mais tarde.";
     default:

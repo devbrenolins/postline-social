@@ -19,10 +19,10 @@ const GRAPH = () => `https://graph.instagram.com/${VERSION()}`;
 
 /** Instagram app ID/secret (produto Instagram no app da Meta). Cai para META_* se não definido. */
 function appId() {
-  return process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || "";
+  return (process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || "").trim();
 }
 function appSecret() {
-  return process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || "";
+  return (process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || "").trim();
 }
 
 export const META_SCOPES = [

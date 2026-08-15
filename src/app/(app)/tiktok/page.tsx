@@ -27,6 +27,7 @@ export default function TikTokPage() {
   const [noAccount, setNoAccount] = useState(false);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   const load = useCallback(async (aviso = false) => {
     setLoading(true);
@@ -37,7 +38,11 @@ export default function TikTokPage() {
       setVideos(data.videos ?? []);
       setNoAccount(Boolean(data.noAccount));
       setFetchedAt(data.fetchedAt ?? null);
-      if (aviso) toast.success("Vídeos atualizados do TikTok.");
+      setErro(data.error ?? null);
+      // Resposta 200 com erro por conta: a listagem veio vazia por um motivo,
+      // e o usuário precisa saber qual.
+      if (data.error) toast.error(data.error);
+      else if (aviso) toast.success("Vídeos atualizados do TikTok.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao carregar.");
     } finally {
@@ -65,6 +70,12 @@ export default function TikTokPage() {
           <RefreshCw size={14} /> Atualizar
         </Button>
       </div>
+
+      {erro && (
+        <div className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-[12.5px] text-danger">
+          {erro}
+        </div>
+      )}
 
       {noAccount ? (
         <EmptyState
