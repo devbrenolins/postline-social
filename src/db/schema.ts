@@ -235,8 +235,33 @@ export const posts = pgTable(
     publishedAt: timestamp("published_at", { withTimezone: true }),
     labels: jsonb("labels").$type<string[]>().default([]),
     metrics: jsonb("metrics")
-      .$type<{ likes: number; comments: number; shares: number; saves: number; reach: number; views: number; clicks: number }>()
+      .$type<{
+        likes: number;
+        comments: number;
+        shares: number;
+        saves: number;
+        reach: number;
+        views: number;
+        clicks: number;
+        /** Interações totais somadas pela própria Meta. */
+        interactions?: number;
+        /** Só em Reels: tempo médio assistido e tempo total, em milissegundos. */
+        avgWatchTime?: number;
+        totalWatchTime?: number;
+      }>()
       .default({ likes: 0, comments: 0, shares: 0, saves: 0, reach: 0, views: 0, clicks: 0 }),
+    /** Extras aceitos pela API na hora de publicar (local, colaboradores, tags…). */
+    publishOptions: jsonb("publish_options")
+      .$type<{
+        locationId?: string;
+        collaborators?: string[];
+        userTags?: { username: string; x?: number; y?: number }[];
+        altTexts?: string[];
+        coverUrl?: string;
+        thumbOffset?: number;
+        shareToFeed?: boolean;
+      }>()
+      .default({}),
     // IDs de mídia no Instagram por conta (para buscar insights reais do post).
     externalMedia: jsonb("external_media")
       .$type<{ socialAccountId: string; mediaId: string }[]>()
@@ -277,11 +302,25 @@ export const inboxItems = pgTable(
     status: varchar("status", { length: 24 }).notNull().default("unread"), // unread | read | archived
     isFavorite: boolean("is_favorite").notNull().default(false),
     replies: jsonb("replies").$type<{ text: string; at: string; by: string }[]>().default([]),
+    /** Conta que recebeu — é dela o token usado para responder. */
+    socialAccountId: uuid("social_account_id").references(() => socialAccounts.id, { onDelete: "set null" }),
+    /** ID do comentário (ou do remetente, em mensagem) no Instagram. */
+    externalId: varchar("external_id", { length: 80 }),
+    /** Mídia comentada, para abrir o post e casar com a automação. */
+    externalMediaId: varchar("external_media_id", { length: 80 }),
+    permalink: text("permalink"),
+    /** Comentário ocultado no Instagram (some para os outros, não é apagado). */
+    hidden: boolean("hidden").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("inbox_workspace_idx").on(t.workspaceId), index("inbox_status_idx").on(t.status)]
+  (t) => [
+    index("inbox_workspace_idx").on(t.workspaceId),
+    index("inbox_status_idx").on(t.status),
+    // Reimportar a mesma conversa não pode duplicar a caixa de entrada.
+    uniqueIndex("inbox_external_idx").on(t.workspaceId, t.externalId),
+  ]
 );
 
 /* ------------------------------------------------------------------ */
@@ -370,6 +409,18 @@ export const analyticsDaily = pgTable(
     shares: integer("shares").notNull().default(0),
     saves: integer("saves").notNull().default(0),
     clicks: integer("clicks").notNull().default(0),
+    /** Visitas ao perfil no dia. */
+    profileViews: integer("profile_views").notNull().default(0),
+    /** Cliques no link da bio. */
+    websiteClicks: integer("website_clicks").notNull().default(0),
+    /** Contas únicas que interagiram com o conteúdo. */
+    accountsEngaged: integer("accounts_engaged").notNull().default(0),
+    /** Interações totais (curtidas + comentários + salvos + compart. + respostas). */
+    totalInteractions: integer("total_interactions").notNull().default(0),
+    /** Respostas a stories. */
+    replies: integer("replies").notNull().default(0),
+    /** Ganho líquido de seguidores no dia (métrica `follower_count`). */
+    followerDelta: integer("follower_delta").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -378,6 +429,42 @@ export const analyticsDaily = pgTable(
     uniqueIndex("analytics_account_day_idx").on(t.socialAccountId, t.day),
     index("analytics_workspace_idx").on(t.workspaceId),
     index("analytics_day_idx").on(t.day),
+  ]
+);
+
+/**
+ * Recortes das métricas diárias e da audiência.
+ *
+ * Uma linha por (dia, métrica, dimensão, rótulo) — formato longo de propósito:
+ * a Meta devolve dimensões com cardinalidade variável (tipo de mídia, seguidor
+ * vs. não seguidor, cidade, faixa etária) e novas aparecem sem aviso. Somar por
+ * período vira um `GROUP BY`, sem precisar de coluna nova a cada recorte.
+ */
+export const analyticsBreakdowns = pgTable(
+  "analytics_breakdowns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    socialAccountId: uuid("social_account_id")
+      .notNull()
+      .references(() => socialAccounts.id, { onDelete: "cascade" }),
+    platform: varchar("platform", { length: 24 }).$type<Platform>().notNull(),
+    day: date("day").notNull(),
+    /** views | reach | followers | reached */
+    metric: varchar("metric", { length: 40 }).notNull(),
+    /** follow_type | media_product_type | city | country | age | gender */
+    dimension: varchar("dimension", { length: 40 }).notNull(),
+    /** FOLLOWER, REEL, "São Paulo, São Paulo (state)", "25-34", F… */
+    label: varchar("label", { length: 160 }).notNull(),
+    value: integer("value").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("breakdown_unique_idx").on(t.socialAccountId, t.day, t.metric, t.dimension, t.label),
+    index("breakdown_workspace_day_idx").on(t.workspaceId, t.day),
   ]
 );
 

@@ -2,6 +2,22 @@ export type PlatformT = "instagram" | "facebook" | "x" | "linkedin" | "tiktok" |
 
 export interface PostMetrics {
   likes: number; comments: number; shares: number; saves: number; reach: number; views: number; clicks: number;
+  /** Interações totais somadas pela Meta. */
+  interactions?: number;
+  /** Retenção em milissegundos — só Reels. */
+  avgWatchTime?: number;
+  totalWatchTime?: number;
+}
+
+/** Extras aceitos pela API do Instagram na hora de publicar. */
+export interface PublishOptions {
+  locationId?: string;
+  collaborators?: string[];
+  userTags?: { username: string; x?: number; y?: number }[];
+  altTexts?: string[];
+  coverUrl?: string;
+  thumbOffset?: number;
+  shareToFeed?: boolean;
 }
 
 export interface Post {
@@ -19,6 +35,7 @@ export interface Post {
   publishedAt: string | null;
   labels: string[];
   metrics: PostMetrics;
+  publishOptions?: PublishOptions;
   version: number;
   createdAt: string;
 }
@@ -48,6 +65,11 @@ export interface InboxItem {
   text: string; postPreview: string; status: "unread" | "read" | "archived";
   isFavorite: boolean; replies: { text: string; at: string; by: string }[];
   createdAt: string;
+  /** ID do comentário (ou do remetente) no Instagram — sem ele não dá para responder lá. */
+  externalId?: string | null;
+  permalink?: string | null;
+  /** Comentário ocultado no Instagram. */
+  hidden?: boolean;
 }
 
 export interface AppNotification {

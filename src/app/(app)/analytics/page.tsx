@@ -3,22 +3,58 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Users, Eye, Heart, Download, FileSpreadsheet, FileText, TrendingUp, TrendingDown, Percent, ImageIcon,
+  Sparkles, UserSearch, MousePointerClick, Compass, LayoutGrid, MapPin, Timer,
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, LineChart, Line, ReferenceLine,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, LineChart, Line, ReferenceLine, Cell, LabelList,
 } from "recharts";
 import { cn, Button, Segmented, PlatformChip, Badge, fmt, PLATFORM_META } from "@/components/ui";
-import type { Post, PlatformT } from "@/lib/types";
+import type { PlatformT } from "@/lib/types";
 import { toast } from "sonner";
 
 interface SeriesPoint { day: string; followers: number; reach: number; views: number; engagement: number; }
+interface TopPost {
+  id: string;
+  caption: string;
+  mediaUrl: string | null;
+  permalink: string | null;
+  publishedAt: string | null;
+  platform: PlatformT;
+  productType: string;
+  metrics: { likes: number; comments: number; shares: number; saves: number; reach: number; views: number; avgWatchTime: number };
+}
+interface Cut { label: string; views: number; reach: number }
+interface AudienceRow { label: string; followers: number; reached: number }
 interface Analytics {
   series: SeriesPoint[];
-  kpis: { followers: number; reach: number; views: number; engagement: number; engagementRate: number; followersDelta: number; reachDelta: number; viewsDelta: number; engagementDelta: number };
+  kpis: {
+    followers: number; reach: number; views: number; engagement: number; engagementRate: number;
+    followersDelta: number; followersGained: number; profileViews: number; websiteClicks: number; accountsEngaged: number;
+    reachDelta: number; viewsDelta: number; engagementDelta: number; profileViewsDelta: number; websiteClicksDelta: number;
+  };
   accounts: { id: string; platform: PlatformT; handle: string; followers: number }[];
   weekdayScores: { day: string; score: number }[];
-  topPosts: Post[];
+  topPosts: TopPost[];
+  breakdowns: { followType: Cut[]; format: Cut[] };
+  audience: { city: AudienceRow[]; country: AudienceRow[]; age: AudienceRow[]; gender: AudienceRow[] };
 }
+
+/** Série categórica dos gráficos: ordem fixa, validada para daltonismo. */
+const CAT = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)", "var(--cat-5)"];
+
+const FORMAT_LABEL: Record<string, string> = {
+  REEL: "Reels", STORY: "Stories", POST: "Posts", CAROUSEL_CONTAINER: "Carrosséis", AD: "Anúncios", IGTV: "IGTV",
+};
+/** Cor fixa por formato — um filtro que some com uma barra não repinta as outras. */
+const FORMAT_ORDER = ["REEL", "STORY", "POST", "CAROUSEL_CONTAINER", "AD"];
+const formatColor = (label: string) => CAT[FORMAT_ORDER.indexOf(label) === -1 ? 4 : FORMAT_ORDER.indexOf(label)];
+
+const GENDER_LABEL: Record<string, string> = { F: "Feminino", M: "Masculino", U: "Não informado" };
+const FOLLOW_COLOR: Record<string, string> = { NON_FOLLOWER: CAT[1], FOLLOWER: CAT[0], UNKNOWN: "var(--border-strong)" };
+const FOLLOW_LABEL: Record<string, string> = { FOLLOWER: "Seguidores", NON_FOLLOWER: "Não seguidores", UNKNOWN: "Não identificado" };
+
+/** Retenção vem em milissegundos. */
+const watchTime = (ms: number) => (ms >= 60_000 ? `${Math.floor(ms / 60_000)}min ${Math.round((ms % 60_000) / 1000)}s` : `${(ms / 1000).toFixed(1).replace(".", ",")}s`);
 
 const dayLabel = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 
@@ -50,12 +86,22 @@ export default function AnalyticsPage() {
 
   const k = data?.kpis;
   const kpis = [
-    { label: "Seguidores", value: k ? fmt(k.followers) : "…", delta: k?.followersDelta, icon: Users },
+    { label: "Seguidores", value: k ? fmt(k.followers) : "…", delta: k?.followersDelta, icon: Users, sub: k ? `${k.followersGained >= 0 ? "+" : ""}${fmt(k.followersGained)} no período` : undefined },
     { label: "Alcance", value: k ? fmt(k.reach) : "…", delta: k?.reachDelta, icon: Eye },
     { label: "Visualizações", value: k ? fmt(k.views) : "…", delta: k?.viewsDelta, icon: ImageIcon },
     { label: "Engajamento", value: k ? fmt(k.engagement) : "…", delta: k?.engagementDelta, icon: Heart },
     { label: "Taxa de engaj.", value: k ? `${k.engagementRate.toFixed(1).replace(".", ",")}%` : "…", delta: k?.engagementDelta, icon: Percent },
+    { label: "Contas engajadas", value: k ? fmt(k.accountsEngaged) : "…", icon: Sparkles },
+    { label: "Visitas ao perfil", value: k ? fmt(k.profileViews) : "…", delta: k?.profileViewsDelta, icon: UserSearch },
+    { label: "Cliques no site", value: k ? fmt(k.websiteClicks) : "…", delta: k?.websiteClicksDelta, icon: MousePointerClick },
   ];
+
+  const followType = data?.breakdowns?.followType ?? [];
+  const discovery = followType.find((f) => f.label === "NON_FOLLOWER");
+  const totalFollowViews = followType.reduce((sum, f) => sum + f.views, 0);
+  const discoveryShare = totalFollowViews > 0 ? ((discovery?.views ?? 0) / totalFollowViews) * 100 : 0;
+  const formatCuts = data?.breakdowns?.format ?? [];
+  const paid = formatCuts.find((f) => f.label === "AD");
 
   return (
     <div className="space-y-5 animate-fade-up">
@@ -80,7 +126,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* KPI grid */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
         {kpis.map((card) => {
           const positive = (card.delta ?? 0) >= 0;
           return (
@@ -95,6 +141,7 @@ export default function AnalyticsPage() {
                   </span>
                 )}
               </div>
+              {card.sub && <p className="mt-1 text-[10.5px] text-muted tnum">{card.sub}</p>}
             </div>
           );
         })}
@@ -173,6 +220,123 @@ export default function AnalyticsPage() {
         </ChartCard>
       </div>
 
+      {/* Descoberta + formato */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent"><Compass size={14} /></span>
+            <div>
+              <h3 className="text-[14px] font-semibold">Descoberta</h3>
+              <p className="text-[12px] text-muted">Quanto do conteúdo chegou a quem ainda não segue o perfil</p>
+            </div>
+          </div>
+
+          {data ? (
+            totalFollowViews > 0 ? (
+              <>
+                <p className="mt-4 text-[32px] font-semibold leading-none tracking-tight tnum">
+                  {discoveryShare.toFixed(0)}<span className="text-[20px] text-muted">%</span>
+                </p>
+                <p className="mt-1 text-[12px] text-muted">das visualizações vieram de não seguidores</p>
+                <div className="mt-4 flex h-3 gap-0.5 overflow-hidden rounded-full">
+                  {followType.map((f) => (
+                    <div key={f.label} className="h-full first:rounded-l-full last:rounded-r-full"
+                      style={{ width: `${(f.views / totalFollowViews) * 100}%`, background: FOLLOW_COLOR[f.label] ?? "var(--border-strong)" }} />
+                  ))}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {followType.map((f) => (
+                    <div key={f.label} className="flex items-center gap-2 text-[12px]">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: FOLLOW_COLOR[f.label] ?? "var(--border-strong)" }} />
+                      <span className="text-muted">{FOLLOW_LABEL[f.label] ?? f.label}</span>
+                      <span className="ml-auto font-semibold tnum">{fmt(f.views)}</span>
+                      <span className="w-20 text-right text-muted tnum">{fmt(f.reach)} alcance</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="mt-6 text-[12.5px] text-muted">Sem dados de descoberta no período.</p>
+            )
+          ) : (
+            <div className="mt-4 space-y-2"><div className="skeleton h-10" /><div className="skeleton h-3" /><div className="skeleton h-16" /></div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent"><LayoutGrid size={14} /></span>
+            <div>
+              <h3 className="text-[14px] font-semibold">Por formato</h3>
+              <p className="text-[12px] text-muted">
+                Visualizações por tipo de publicação
+                {paid ? <> — {fmt(paid.views)} vieram de anúncios</> : null}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 h-53">
+            {data ? (
+              formatCuts.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={formatCuts} layout="vertical" margin={{ top: 0, right: 44, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: "var(--muted)" }} tickLine={false} axisLine={false} tickFormatter={(v) => fmt(v as number)} />
+                    <YAxis type="category" dataKey="label" width={78} tick={{ fontSize: 11, fill: "var(--muted)" }} tickLine={false} axisLine={false}
+                      tickFormatter={(v) => FORMAT_LABEL[v as string] ?? (v as string)} />
+                    <Tooltip content={<CutTip />} cursor={{ fill: "var(--surface-2)" }} />
+                    <Bar dataKey="views" name="Visualizações" radius={[2, 4, 4, 2]} maxBarSize={22}>
+                      {formatCuts.map((f) => <Cell key={f.label} fill={formatColor(f.label)} />)}
+                      <LabelList dataKey="views" position="right" formatter={(v) => fmt(Number(v ?? 0))}
+                        style={{ fill: "var(--muted)", fontSize: 11, fontVariantNumeric: "tabular-nums" }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-[12.5px] text-muted">Sem publicações no período.</p>
+              )
+            ) : <div className="skeleton h-full" />}
+          </div>
+        </div>
+      </div>
+
+      {/* Audiência */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <h3 className="text-[14px] font-semibold">Faixa etária</h3>
+          <p className="mb-3 text-[12px] text-muted">Seguidores por idade</p>
+          <div className="h-44">
+            {data ? (
+              data.audience.age.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.audience.age} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: "var(--muted)" }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted)" }} tickLine={false} axisLine={false} />
+                    <Tooltip content={<AudienceTip />} cursor={{ fill: "var(--surface-2)" }} />
+                    <Bar dataKey="followers" name="Seguidores" radius={[4, 4, 2, 2]} fill="var(--accent)" maxBarSize={34} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <p className="text-[12.5px] text-muted">A Meta só libera demografia com audiência suficiente.</p>
+            ) : <div className="skeleton h-full" />}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <h3 className="text-[14px] font-semibold">Gênero</h3>
+          <p className="mb-3 text-[12px] text-muted">Seguidores declarados</p>
+          <BarRows rows={(data?.audience.gender ?? []).map((g) => ({ label: GENDER_LABEL[g.label] ?? g.label, value: g.followers }))} loading={!data} />
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <div className="flex items-center gap-1.5">
+            <MapPin size={13} className="text-muted" />
+            <h3 className="text-[14px] font-semibold">Onde estão</h3>
+          </div>
+          <p className="mb-3 text-[12px] text-muted">Principais cidades dos seguidores</p>
+          <BarRows rows={(data?.audience.city ?? []).slice(0, 6).map((c) => ({ label: c.label.replace(/,.*/, ""), value: c.followers }))} loading={!data} />
+        </div>
+      </div>
+
       {/* Accounts + top posts table */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_1fr]">
         <div className="rounded-2xl border border-border bg-surface p-5">
@@ -198,6 +362,7 @@ export default function AnalyticsPage() {
         <div className="overflow-hidden rounded-2xl border border-border bg-surface">
           <div className="border-b border-border px-5 py-4">
             <h3 className="text-[14px] font-semibold">Top publicações do período</h3>
+            <p className="text-[12px] text-muted">Publicações reais do perfil, ordenadas por alcance</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
@@ -208,6 +373,7 @@ export default function AnalyticsPage() {
                   <th className="px-3 py-2.5 text-right font-semibold">Curtidas</th>
                   <th className="px-3 py-2.5 text-right font-semibold">Coment.</th>
                   <th className="px-3 py-2.5 text-right font-semibold">Salvos</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Visualiz.</th>
                   <th className="py-2.5 pl-3 pr-5 text-right font-semibold">Alcance</th>
                 </tr>
               </thead>
@@ -216,24 +382,37 @@ export default function AnalyticsPage() {
                   p ? (
                     <tr key={p.id} className="border-b border-border/60 transition last:border-0 hover:bg-surface-2/50">
                       <td className="py-2.5 pl-5 pr-3">
-                        <div className="flex items-center gap-2.5">
-                          {p.mediaUrls[0] ? (
+                        <a
+                          href={p.permalink ?? undefined}
+                          target={p.permalink ? "_blank" : undefined}
+                          rel="noreferrer"
+                          className={cn("flex items-center gap-2.5", p.permalink && "hover:text-accent")}
+                        >
+                          {p.mediaUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={p.mediaUrls[0]} alt="" className="h-9 w-9 rounded-lg object-cover" loading="lazy" />
+                            <img src={p.mediaUrl} alt="" className="h-9 w-9 rounded-lg object-cover" loading="lazy" />
                           ) : <span className="h-9 w-9 rounded-lg bg-surface-2" />}
-                          <span className="max-w-60 truncate font-medium">{p.caption}</span>
-                        </div>
+                          <span className="min-w-0">
+                            <span className="block max-w-60 truncate font-medium">{p.caption || "Sem legenda"}</span>
+                            {p.metrics.avgWatchTime > 0 && (
+                              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted tnum">
+                                <Timer size={10} /> {watchTime(p.metrics.avgWatchTime)} assistidos em média
+                              </span>
+                            )}
+                          </span>
+                        </a>
                       </td>
-                      <td className="px-3 py-2.5"><PlatformChip platform={p.networks[0]} size={12} /></td>
+                      <td className="px-3 py-2.5"><PlatformChip platform={p.platform} size={12} /></td>
                       <td className="px-3 py-2.5 text-right font-semibold tnum">{fmt(p.metrics.likes)}</td>
                       <td className="px-3 py-2.5 text-right tnum">{fmt(p.metrics.comments)}</td>
                       <td className="px-3 py-2.5 text-right tnum">{fmt(p.metrics.saves)}</td>
+                      <td className="px-3 py-2.5 text-right tnum">{fmt(p.metrics.views)}</td>
                       <td className="py-2.5 pl-3 pr-5 text-right">
                         <Badge tone="accent">{fmt(p.metrics.reach)}</Badge>
                       </td>
                     </tr>
                   ) : (
-                    <tr key={i}><td colSpan={6} className="px-5 py-2.5"><div className="skeleton h-9 w-full" /></td></tr>
+                    <tr key={i}><td colSpan={7} className="px-5 py-2.5"><div className="skeleton h-9 w-full" /></td></tr>
                   )
                 )}
               </tbody>
@@ -265,6 +444,50 @@ function Tip({ active, payload, label }: { active?: boolean; payload?: { name: s
           {p.name}: {fmt(Number(p.value))}
         </p>
       ))}
+    </div>
+  );
+}
+
+/** Ranking simples: rótulo, barra e valor — para dimensões sem eixo próprio. */
+function BarRows({ rows, loading }: { rows: { label: string; value: number }[]; loading?: boolean }) {
+  if (loading) return <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-7" />)}</div>;
+  if (rows.length === 0) return <p className="text-[12.5px] text-muted">A Meta só libera demografia com audiência suficiente.</p>;
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div className="space-y-2.5">
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-center gap-3">
+          <span className="w-24 shrink-0 truncate text-[12px] text-muted" title={r.label}>{r.label}</span>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-accent" style={{ width: `${(r.value / max) * 100}%` }} />
+          </div>
+          <span className="w-10 text-right text-[12px] font-semibold tnum">{fmt(r.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CutTip({ active, payload }: { active?: boolean; payload?: { payload: Cut }[] }) {
+  const row = payload?.[0]?.payload;
+  if (!active || !row) return null;
+  return (
+    <div className="rounded-xl border border-border bg-surface px-3 py-2 shadow-lg">
+      <p className="mb-1 text-[11px] font-medium text-muted">{FORMAT_LABEL[row.label] ?? row.label}</p>
+      <p className="text-[12px] font-semibold tnum">{fmt(row.views)} visualizações</p>
+      <p className="text-[12px] text-muted tnum">{fmt(row.reach)} de alcance</p>
+    </div>
+  );
+}
+
+function AudienceTip({ active, payload }: { active?: boolean; payload?: { payload: AudienceRow }[] }) {
+  const row = payload?.[0]?.payload;
+  if (!active || !row) return null;
+  return (
+    <div className="rounded-xl border border-border bg-surface px-3 py-2 shadow-lg">
+      <p className="mb-1 text-[11px] font-medium text-muted">{row.label}</p>
+      <p className="text-[12px] font-semibold tnum">{fmt(row.followers)} seguidores</p>
+      {row.reached > 0 && <p className="text-[12px] text-muted tnum">{fmt(row.reached)} alcançados</p>}
     </div>
   );
 }

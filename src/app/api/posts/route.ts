@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { posts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { publishPost } from "@/lib/publishing";
+import { sanitizePublishOptions } from "@/lib/publish-options";
 import { and, desc, asc, eq, isNull, isNotNull, sql, SQL } from "drizzle-orm";
 
 // Publicar no Instagram envolve esperar o container processar; evita que a
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
     status: wantsPublish ? "draft" : status,
     scheduledAt: status === "scheduled" && body.scheduledAt ? new Date(body.scheduledAt) : null,
     labels: Array.isArray(body.labels) ? body.labels : [],
+    publishOptions: sanitizePublishOptions(body.publishOptions),
     history: [{ caption: String(body.caption ?? ""), at: now.toISOString() }],
   }).returning();
 

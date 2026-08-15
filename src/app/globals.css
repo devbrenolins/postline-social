@@ -35,6 +35,14 @@
   --warning: #a8671c;
   --danger: #b3402f;
   --info: #3e6c8e;
+  /* Série categórica dos gráficos: ordem fixa, nunca reciclada. Os cinco passos
+     foram validados para banda de luminosidade, croma, contraste e separação
+     sob daltonismo — mexer num tom exige revalidar o conjunto. */
+  --cat-1: #b02a57;
+  --cat-2: #2f6fb0;
+  --cat-3: #3f8f45;
+  --cat-4: #8a4bb0;
+  --cat-5: #a96a00;
   color-scheme: light;
 }
 
@@ -53,6 +61,13 @@
   --warning: #cf9143;
   --danger: #d1604e;
   --info: #6a9cc4;
+  /* Passos próprios para o tema escuro (não é clareamento automático dos claros:
+     a banda de luminosidade aceita no escuro é mais estreita). */
+  --cat-1: #d4587f;
+  --cat-2: #4f8fd0;
+  --cat-3: #4ca466;
+  --cat-4: #a96bd0;
+  --cat-5: #c07c1e;
   color-scheme: dark;
 }
 

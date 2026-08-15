@@ -71,6 +71,20 @@
       "when": 1786749138056,
       "tag": "0009_nostalgic_miracleman",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786751102327,
+      "tag": "0010_luxuriant_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786752082505,
+      "tag": "0011_fine_shocker",
+      "breakpoints": true
     }
   ]
 }

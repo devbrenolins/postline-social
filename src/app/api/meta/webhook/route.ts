@@ -78,16 +78,24 @@ export async function POST(req: NextRequest) {
       if (c.from?.id && c.from.id === igId) continue;
 
       const username = c.from?.username || c.from?.id || "alguém";
-      await db.insert(inboxItems).values({
-        workspaceId: account.workspaceId,
-        platform: "instagram",
-        type: "comment",
-        authorName: username,
-        authorHandle: username,
-        text: commentText,
-        postPreview: c.media?.id ? `Mídia ${c.media.id}` : "",
-        status: "unread",
-      });
+      // Guarda a origem: sem o id do comentário e a conta, a resposta da caixa
+      // de entrada não tem como sair no Instagram.
+      await db
+        .insert(inboxItems)
+        .values({
+          workspaceId: account.workspaceId,
+          socialAccountId: account.id,
+          platform: "instagram",
+          type: "comment",
+          authorName: username,
+          authorHandle: username,
+          text: commentText,
+          postPreview: c.media?.id ? `Mídia ${c.media.id}` : "",
+          externalId: c.id ?? null,
+          externalMediaId: c.media?.id ?? null,
+          status: "unread",
+        })
+        .onConflictDoNothing({ target: [inboxItems.workspaceId, inboxItems.externalId] });
       await db.insert(notifications).values({
         workspaceId: account.workspaceId,
         title: `Novo comentário de @${username}`,
@@ -128,15 +136,24 @@ export async function POST(req: NextRequest) {
       if (!senderId || !text || event.message?.is_echo) continue;
 
       // Registra a mensagem na caixa de entrada.
-      await db.insert(inboxItems).values({
-        workspaceId: account.workspaceId,
-        platform: "instagram",
-        type: "message",
-        authorName: senderId,
-        authorHandle: senderId,
-        text: event.message?.text ?? "",
-        status: "unread",
-      });
+      await db
+        .insert(inboxItems)
+        .values({
+          workspaceId: account.workspaceId,
+          socialAccountId: account.id,
+          platform: "instagram",
+          type: "message",
+          authorName: senderId,
+          authorHandle: senderId,
+          text: event.message?.text ?? "",
+          // Em direct, responder é mandar para o remetente — é ele o destino.
+          externalId: senderId,
+          status: "unread",
+        })
+        .onConflictDoUpdate({
+          target: [inboxItems.workspaceId, inboxItems.externalId],
+          set: { text: event.message?.text ?? "", status: "unread", updatedAt: new Date() },
+        });
       await db.insert(notifications).values({
         workspaceId: account.workspaceId,
         title: "Nova mensagem no Instagram",

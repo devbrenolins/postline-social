@@ -1,7 +1,14 @@
 import { db } from "@/db";
 import { posts, socialAccounts } from "@/db/schema";
 import { and, eq, isNull, or } from "drizzle-orm";
-import { createMediaContainer, publishMediaContainer, getContainerStatus } from "@/lib/instagram";
+import {
+  createMediaContainer,
+  createCarouselContainer,
+  publishMediaContainer,
+  getContainerStatus,
+  getPublishingLimit,
+  type PublishExtras,
+} from "@/lib/instagram";
 
 export type PublishResult = { account: string; ok: boolean; mediaId?: string; error?: string };
 
@@ -25,30 +32,71 @@ async function waitForContainer(creationId: string, token: string, attempts: num
   throw new Error("A mídia demorou demais para processar no Instagram. Tente novamente.");
 }
 
-async function publishToAccount(
-  igId: string,
-  token: string,
-  handle: string,
-  mediaUrl: string,
-  caption: string
-): Promise<PublishResult> {
-  try {
-    const creationId = isVideo(mediaUrl)
-      ? await createMediaContainer(igId, token, { videoUrl: mediaUrl, caption, mediaType: "REELS" })
-      : await createMediaContainer(igId, token, { imageUrl: mediaUrl, caption });
+/** Vídeos processam mais devagar (até ~60s); imagens ficam prontas em 1–2s. */
+async function waitFor(url: string, creationId: string, token: string) {
+  if (isVideo(url)) await waitForContainer(creationId, token, 20, 3000);
+  else await waitForContainer(creationId, token, 15, 1000);
+}
 
-    // Vídeos processam mais devagar (até ~60s); imagens costumam ficar prontas
-    // em 1–2s, mas ainda precisam do FINISHED antes de publicar.
-    if (isVideo(mediaUrl)) {
-      await waitForContainer(creationId, token, 20, 3000);
-    } else {
-      await waitForContainer(creationId, token, 15, 1000);
+type PublishJob = {
+  mediaUrls: string[];
+  caption: string;
+  format: string;
+  extras: PublishExtras;
+};
+
+/**
+ * Monta e publica o container certo para o formato escolhido no composer.
+ *
+ * - `story`: uma publicação por mídia (é assim que o Instagram trata stories).
+ * - `carousel` (ou várias mídias no feed): containers-filho + container pai.
+ * - resto: imagem única, ou reel quando a mídia é vídeo.
+ */
+async function publishToAccount(igId: string, token: string, handle: string, job: PublishJob): Promise<PublishResult[]> {
+  const { mediaUrls, caption, format, extras } = job;
+
+  try {
+    if (format === "story") {
+      const results: PublishResult[] = [];
+      for (const url of mediaUrls) {
+        const creationId = await createMediaContainer(igId, token, {
+          ...(isVideo(url) ? { videoUrl: url } : { imageUrl: url }),
+          mediaType: "STORIES",
+        });
+        await waitFor(url, creationId, token);
+        results.push({ account: handle, ok: true, mediaId: await publishMediaContainer(igId, token, creationId) });
+      }
+      return results;
     }
 
-    const mediaId = await publishMediaContainer(igId, token, creationId);
-    return { account: handle, ok: true, mediaId };
+    const isCarousel = format === "carousel" || (mediaUrls.length > 1 && format !== "reel");
+    if (isCarousel) {
+      const childIds: string[] = [];
+      for (const [i, url] of mediaUrls.slice(0, 10).entries()) {
+        const childId = await createMediaContainer(igId, token, {
+          ...(isVideo(url) ? { videoUrl: url } : { imageUrl: url }),
+          isCarouselItem: true,
+          altText: extras.altTexts?.[i],
+        });
+        await waitFor(url, childId, token);
+        childIds.push(childId);
+      }
+      const parentId = await createCarouselContainer(igId, token, childIds, caption, extras);
+      await waitForContainer(parentId, token, 20, 1500);
+      return [{ account: handle, ok: true, mediaId: await publishMediaContainer(igId, token, parentId) }];
+    }
+
+    const url = mediaUrls[0];
+    const creationId = await createMediaContainer(igId, token, {
+      ...(isVideo(url) ? { videoUrl: url, mediaType: "REELS" } : { imageUrl: url }),
+      caption,
+      ...extras,
+      altText: extras.altTexts?.[0] ?? extras.altText,
+    });
+    await waitFor(url, creationId, token);
+    return [{ account: handle, ok: true, mediaId: await publishMediaContainer(igId, token, creationId) }];
   } catch (e) {
-    return { account: handle, ok: false, error: e instanceof Error ? e.message : "Falha ao publicar." };
+    return [{ account: handle, ok: false, error: e instanceof Error ? e.message : "Falha ao publicar." }];
   }
 }
 
@@ -67,16 +115,20 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
   )[0];
   if (!post) throw new Error("Post não encontrado.");
 
-  const mediaUrl = post.mediaUrls?.[0];
-  if (!mediaUrl) {
+  const fail = async (message: string): Promise<never> => {
     await db.update(posts).set({ status: "failed", updatedAt: new Date() }).where(eq(posts.id, post.id));
-    throw new Error("O post precisa de ao menos uma mídia (URL pública) para publicar.");
-  }
+    throw new Error(message);
+  };
+
+  const mediaUrls = (post.mediaUrls ?? []).filter(Boolean);
+  if (mediaUrls.length === 0) await fail("O post precisa de ao menos uma mídia (URL pública) para publicar.");
   // A Graph API do Instagram baixa a mídia da URL: precisa ser HTTP(S) pública.
   // Data URIs (base64) ou blobs locais não funcionam.
-  if (!/^https?:\/\//i.test(mediaUrl)) {
-    await db.update(posts).set({ status: "failed", updatedAt: new Date() }).where(eq(posts.id, post.id));
-    throw new Error("A mídia precisa ser uma URL pública (http/https). Faça upload da imagem antes de publicar.");
+  if (mediaUrls.some((u) => !/^https?:\/\//i.test(u))) {
+    await fail("A mídia precisa ser uma URL pública (http/https). Faça upload da imagem antes de publicar.");
+  }
+  if (post.format === "carousel" && mediaUrls.length < 2) {
+    await fail("Um carrossel precisa de pelo menos 2 mídias.");
   }
 
   const targets = await db
@@ -97,16 +149,47 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
 
   const usable = targets.filter((a) => a.externalId && a.accessToken);
   if (usable.length === 0) {
-    await db.update(posts).set({ status: "failed", updatedAt: new Date() }).where(eq(posts.id, post.id));
-    throw new Error("Nenhuma conta Instagram conectada para publicar. Conecte uma conta em Clientes.");
+    await fail("Nenhuma conta Instagram conectada para publicar. Conecte uma conta em Clientes.");
   }
+
+  // A Meta limita publicações por 24h e recusa a chamada quando estoura. Ver
+  // antes vira mensagem clara em vez de erro cru da API no meio do processo.
+  const quotas = await Promise.all(
+    usable.map(async (acc) => ({ acc, quota: await getPublishingLimit(acc.externalId!, acc.accessToken!) }))
+  );
+  const blocked = quotas.filter(({ quota }) => quota.used >= quota.total);
+  if (blocked.length === usable.length) {
+    await fail(`Limite de publicações do Instagram atingido (${blocked[0].quota.used}/${blocked[0].quota.total} nas últimas 24h). Tente mais tarde.`);
+  }
+
+  const options = post.publishOptions ?? {};
+  const job: PublishJob = {
+    mediaUrls,
+    caption: post.caption ?? "",
+    format: post.format,
+    extras: {
+      locationId: options.locationId,
+      collaborators: options.collaborators,
+      userTags: options.userTags,
+      altTexts: options.altTexts,
+      coverUrl: options.coverUrl,
+      thumbOffset: options.thumbOffset,
+      shareToFeed: options.shareToFeed,
+    },
+  };
 
   const results: PublishResult[] = [];
   const externalMedia: { socialAccountId: string; mediaId: string }[] = [];
-  for (const acc of usable) {
-    const r = await publishToAccount(acc.externalId!, acc.accessToken!, acc.handle, mediaUrl, post.caption ?? "");
-    results.push(r);
-    if (r.ok && r.mediaId) externalMedia.push({ socialAccountId: acc.id, mediaId: r.mediaId });
+  for (const { acc, quota } of quotas) {
+    if (quota.used >= quota.total) {
+      results.push({ account: acc.handle, ok: false, error: "Limite de publicações das últimas 24h atingido." });
+      continue;
+    }
+    const accountResults = await publishToAccount(acc.externalId!, acc.accessToken!, acc.handle, job);
+    results.push(...accountResults);
+    for (const r of accountResults) {
+      if (r.ok && r.mediaId) externalMedia.push({ socialAccountId: acc.id, mediaId: r.mediaId });
+    }
   }
 
   const anyOk = results.some((r) => r.ok);

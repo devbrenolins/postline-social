@@ -17,11 +17,20 @@ import { useComposer } from "@/components/composer";
 import type { Post } from "@/lib/types";
 
 interface SeriesPoint { day: string; followers: number; reach: number; views: number; engagement: number; }
+interface TopPost {
+  id: string;
+  caption: string;
+  mediaUrl: string | null;
+  permalink: string | null;
+  publishedAt: string | null;
+  platform: Post["networks"][number];
+  metrics: { likes: number; comments: number; shares: number; saves: number; reach: number; views: number };
+}
 interface Analytics {
   series: SeriesPoint[];
   kpis: { followers: number; reach: number; views: number; engagement: number; engagementRate: number; followersDelta: number; reachDelta: number; viewsDelta: number; engagementDelta: number };
   weekdayScores: { day: string; score: number }[];
-  topPosts: Post[];
+  topPosts: TopPost[];
 }
 
 const dayLabel = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
@@ -228,23 +237,24 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {(analytics?.topPosts ?? Array.from({ length: 5 })).map((p, i) =>
             p ? (
-              <motion.div key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                className="group overflow-hidden rounded-xl border border-border bg-surface transition-shadow hover:shadow-md">
+              <motion.a key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                href={p.permalink ?? undefined} target={p.permalink ? "_blank" : undefined} rel="noreferrer"
+                className="group block overflow-hidden rounded-xl border border-border bg-surface transition-shadow hover:shadow-md">
                 <div className="relative aspect-square bg-surface-2">
-                  {p.mediaUrls[0] && (
+                  {p.mediaUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.mediaUrls[0]} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
+                    <img src={p.mediaUrl} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
                   )}
-                  <div className="absolute left-2 top-2"><PlatformChip platform={p.networks[0]} size={12} /></div>
+                  <div className="absolute left-2 top-2"><PlatformChip platform={p.platform} size={12} /></div>
                 </div>
                 <div className="p-3">
-                  <p className="truncate text-[12px] text-muted">{p.caption}</p>
+                  <p className="truncate text-[12px] text-muted">{p.caption || "Sem legenda"}</p>
                   <div className="mt-2 flex items-center gap-3 text-[11.5px] font-medium tnum">
-                    <span className="flex items-center gap-1"><Heart size={11} className="text-accent" /> {fmt(p.metrics?.likes ?? 0)}</span>
-                    <span className="flex items-center gap-1 text-muted"><Eye size={11} /> {fmt(p.metrics?.reach ?? 0)}</span>
+                    <span className="flex items-center gap-1"><Heart size={11} className="text-accent" /> {fmt(p.metrics.likes)}</span>
+                    <span className="flex items-center gap-1 text-muted"><Eye size={11} /> {fmt(p.metrics.reach)}</span>
                   </div>
                 </div>
-              </motion.div>
+              </motion.a>
             ) : (
               <div key={i} className="skeleton aspect-[3/4]" />
             )

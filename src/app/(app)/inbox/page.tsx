@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Inbox as InboxIcon, MessageSquare, AtSign, Mail, Search, Star, Archive, ArchiveRestore,
-  Send, CheckCheck, Clock, ChevronLeft, Trash2,
+  Send, CheckCheck, Clock, ChevronLeft, Trash2, RefreshCw, Eye, EyeOff,
 } from "lucide-react";
 import { cn, Button, Badge, Avatar, PlatformChip, EmptyState, inputCls, timeAgo, PLATFORM_META } from "@/components/ui";
 import type { InboxItem } from "@/lib/types";
@@ -32,6 +32,7 @@ export default function InboxPage() {
   const [selected, setSelected] = useState<InboxItem | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+  const [importing, setImporting] = useState(false);
   const offsetRef = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const PAGE = 15;
@@ -86,6 +87,25 @@ export default function InboxPage() {
     setSending(false);
   }
 
+  /** Puxa comentários e directs que já existiam no Instagram. */
+  async function importHistory() {
+    setImporting(true);
+    try {
+      const res = await fetch(`/api/inbox?${buildQuery(0)}&refresh=1`);
+      if (!res.ok) throw new Error("Falha ao buscar no Instagram.");
+      const data = await res.json();
+      setItems(data.items);
+      setHasMore(data.hasMore);
+      setUnread(data.unread);
+      offsetRef.current = PAGE;
+      toast.success("Caixa de entrada atualizada com o Instagram.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao buscar no Instagram.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function open(item: InboxItem) {
     setSelected(item);
     if (item.status === "unread") patch(item.id, { status: "read" });
@@ -134,6 +154,10 @@ export default function InboxPage() {
           </div>
           <div className="mt-2 flex items-center justify-between px-1">
             <span className="text-[11.5px] text-muted tnum">{unread} não lida(s)</span>
+            <button onClick={importHistory} disabled={importing}
+              className="flex items-center gap-1 text-[11.5px] font-medium text-muted transition hover:text-accent disabled:opacity-50">
+              <RefreshCw size={11} className={cn(importing && "animate-spin")} /> Buscar no Instagram
+            </button>
             <button onClick={() => Promise.all(items.filter((i) => i.status === "unread").slice(0, 10).map((i) => patch(i.id, { status: "read" }))).then(() => toast.success("Tudo marcado como lido."))}
               className="text-[11.5px] font-medium text-accent hover:underline">
               Marcar tudo como lido
@@ -198,6 +222,16 @@ export default function InboxPage() {
                 className="rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-amber-400" aria-label="Favoritar">
                 <Star size={15} fill={selected.isFavorite ? "currentColor" : "none"} className={selected.isFavorite ? "text-amber-400" : ""} />
               </button>
+              {selected.type === "comment" && selected.externalId && (
+                <button
+                  onClick={() => patch(selected.id, { hidden: !selected.hidden }, selected.hidden ? "Comentário reexibido no Instagram." : "Comentário ocultado no Instagram.")}
+                  className={cn("rounded-lg p-2 transition hover:bg-surface-2", selected.hidden ? "text-accent" : "text-muted")}
+                  aria-label={selected.hidden ? "Reexibir comentário" : "Ocultar comentário"}
+                  title={selected.hidden ? "Reexibir no Instagram" : "Ocultar no Instagram"}
+                >
+                  {selected.hidden ? <Eye size={15} /> : <EyeOff size={15} />}
+                </button>
+              )}
               {selected.status === "archived" ? (
                 <button onClick={() => patch(selected.id, { status: "read" }, "Desarquivado.")} className="rounded-lg p-2 text-muted transition hover:bg-surface-2" aria-label="Desarquivar"><ArchiveRestore size={15} /></button>
               ) : (
@@ -206,6 +240,11 @@ export default function InboxPage() {
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto p-4">
+              {selected.hidden && (
+                <p className="rounded-xl border border-border bg-surface-2/60 px-3.5 py-2 text-[11.5px] text-muted">
+                  Este comentário está oculto no Instagram — só você e quem escreveu conseguem vê-lo.
+                </p>
+              )}
               {selected.postPreview && (
                 <div className="rounded-xl border border-border bg-surface-2/60 px-3.5 py-2.5">
                   <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted"><MessageSquare size={10} /> Sobre a publicação</p>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { posts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
+import { sanitizePublishOptions } from "@/lib/publish-options";
 import { and, eq, isNull } from "drizzle-orm";
 import { publishPost } from "@/lib/publishing";
 
@@ -74,6 +75,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (Array.isArray(body.networks)) updates.networks = body.networks;
   if (Array.isArray(body.mediaUrls)) updates.mediaUrls = body.mediaUrls;
   if (typeof body.format === "string") updates.format = body.format;
+  if (body.publishOptions !== undefined) updates.publishOptions = sanitizePublishOptions(body.publishOptions);
   if (Array.isArray(body.labels)) updates.labels = body.labels;
   if (body.clientId !== undefined) updates.clientId = body.clientId || null;
   if (body.status && ["draft", "scheduled", "cancelled"].includes(body.status)) updates.status = body.status;

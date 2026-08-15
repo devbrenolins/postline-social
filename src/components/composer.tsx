@@ -6,11 +6,11 @@ import {
   X, CalendarClock, Send, Save, Undo2, Redo2, ImagePlus, Trash2, Hash, Smile,
   Sparkles, ChevronLeft, ChevronRight, Loader2, Heart, MessageCircle, Bookmark,
   Share2, MoreHorizontal, Check, Film, Layers, FileText, MonitorPlay, StickyNote, Upload, Bot,
-  ThumbsUp, Music2,
+  ThumbsUp, Music2, Settings2, ChevronDown,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn, Button, PlatformIcon, PlatformChip, PLATFORM_META, Badge, POST_STATUS, Avatar, inputCls, labelCls, Overlay, panelCls } from "@/components/ui";
-import type { Post, MediaItem, PlatformT } from "@/lib/types";
+import type { Post, MediaItem, PlatformT, PublishOptions } from "@/lib/types";
 import { useWorkspace } from "@/components/workspace-context";
 import {
   AutomationFields, EMPTY_AUTOMATION, draftFromAutomation, isDraftComplete, saveAutomationDraft,
@@ -79,6 +79,8 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
   const [caption, setCaption] = useState(editing?.caption ?? "");
   const [firstComment, setFirstComment] = useState(editing?.firstComment ?? "");
   const [mediaUrls, setMediaUrls] = useState<string[]>(editing?.mediaUrls ?? []);
+  const [options, setOptions] = useState<PublishOptions>(editing?.publishOptions ?? {});
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [scheduledAt, setScheduledAt] = useState<string>(
     toLocalInput(editing?.scheduledAt) || (opts.date ? `${opts.date}T10:00` : "")
   );
@@ -132,13 +134,13 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
     saveTimer.current = setTimeout(async () => {
       await fetch(`/api/posts/${postId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caption, firstComment, networks, mediaUrls, format, clientId: clientId || null, scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined }),
+        body: JSON.stringify({ caption, firstComment, networks, mediaUrls, format, publishOptions: options, clientId: clientId || null, scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined }),
       });
       setSaveState("saved");
       window.dispatchEvent(new CustomEvent("postline:posts-changed"));
     }, 1100);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [caption, firstComment, networks, mediaUrls, format, clientId, scheduledAt, postId, status]);
+  }, [caption, firstComment, networks, mediaUrls, format, options, clientId, scheduledAt, postId, status]);
 
   const charLimit = useMemo(
     () => Math.min(...networks.map((n) => PLATFORM_META[n].charLimit)),
@@ -156,7 +158,7 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
     setBusy(target);
     try {
       const payload = {
-        caption, firstComment, networks, mediaUrls, format, clientId: clientId || null,
+        caption, firstComment, networks, mediaUrls, format, publishOptions: options, clientId: clientId || null,
         status: target === "schedule" ? "scheduled" : target === "publish" ? "published" : "draft",
         scheduledAt: target === "schedule" ? new Date(scheduledAt).toISOString() : null,
       };
@@ -313,6 +315,75 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
             ))}
           </div>
         </div>
+
+        {/* Opções de publicação do Instagram */}
+        {networks.includes("instagram") && (
+          <div className="rounded-xl border border-border">
+            <button type="button" onClick={() => setOptionsOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3.5 py-2.5 text-[12.5px] font-medium">
+              <span className="flex items-center gap-2"><Settings2 size={13} /> Opções do Instagram</span>
+              <ChevronDown size={14} className={cn("text-muted transition-transform", optionsOpen && "rotate-180")} />
+            </button>
+            {optionsOpen && (
+              <div className="space-y-3 border-t border-border px-3.5 py-3">
+                <div>
+                  <label className={labelCls} htmlFor="collaborators">Colaboradores</label>
+                  <input
+                    id="collaborators" disabled={!canInteract} className={inputCls}
+                    placeholder="@perfil1, @perfil2"
+                    value={(options.collaborators ?? []).join(", ")}
+                    onChange={(e) => setOptions((o) => ({ ...o, collaborators: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) }))}
+                  />
+                  <p className="mt-1 text-[11px] text-muted">A publicação aparece também no perfil de quem aceitar o convite.</p>
+                </div>
+
+                <div>
+                  <label className={labelCls} htmlFor="altText">Texto alternativo</label>
+                  <input
+                    id="altText" disabled={!canInteract} className={inputCls}
+                    placeholder="Descreva a imagem para quem usa leitor de tela"
+                    value={options.altTexts?.[0] ?? ""}
+                    onChange={(e) => setOptions((o) => ({ ...o, altTexts: [e.target.value] }))}
+                  />
+                </div>
+
+                <div>
+                  <label className={labelCls} htmlFor="locationId">Local (ID do Facebook Places)</label>
+                  <input
+                    id="locationId" disabled={!canInteract} className={inputCls}
+                    placeholder="Ex.: 106078429431815"
+                    value={options.locationId ?? ""}
+                    onChange={(e) => setOptions((o) => ({ ...o, locationId: e.target.value }))}
+                  />
+                  <p className="mt-1 text-[11px] text-muted">A API do Instagram só aceita o ID numérico do local — ela não oferece busca por nome.</p>
+                </div>
+
+                {format === "reel" && (
+                  <>
+                    <div>
+                      <label className={labelCls} htmlFor="coverUrl">Capa do Reel (URL pública)</label>
+                      <input
+                        id="coverUrl" disabled={!canInteract} className={inputCls}
+                        placeholder="https://…/capa.jpg"
+                        value={options.coverUrl ?? ""}
+                        onChange={(e) => setOptions((o) => ({ ...o, coverUrl: e.target.value }))}
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-[12.5px]">
+                      <input
+                        type="checkbox" disabled={!canInteract}
+                        checked={options.shareToFeed !== false}
+                        onChange={(e) => setOptions((o) => ({ ...o, shareToFeed: e.target.checked }))}
+                        className="h-3.5 w-3.5 accent-[var(--accent)]"
+                      />
+                      Mostrar também no feed
+                    </label>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Caption */}
         <div>
