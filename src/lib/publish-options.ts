@@ -31,5 +31,23 @@ export function sanitizePublishOptions(input: unknown) {
     coverUrl: text(raw.coverUrl),
     thumbOffset: typeof raw.thumbOffset === "number" ? raw.thumbOffset : undefined,
     shareToFeed: typeof raw.shareToFeed === "boolean" ? raw.shareToFeed : undefined,
+    tiktok: sanitizeTikTok(raw.tiktok),
+  };
+}
+
+const PRIVACIDADES = ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"];
+
+/**
+ * Opções que o TikTok exige que venham do usuário, não do app: a privacidade
+ * escolhida explicitamente e a declaração de conteúdo comercial.
+ */
+function sanitizeTikTok(input: unknown) {
+  if (!input || typeof input !== "object") return undefined;
+  const raw = input as Record<string, unknown>;
+  const privacyLevel = typeof raw.privacyLevel === "string" && PRIVACIDADES.includes(raw.privacyLevel) ? raw.privacyLevel : undefined;
+  return {
+    privacyLevel,
+    brandOrganic: raw.brandOrganic === true,
+    brandedContent: raw.brandedContent === true,
   };
 }

@@ -18,6 +18,7 @@ export interface PublishOptions {
   coverUrl?: string;
   thumbOffset?: number;
   shareToFeed?: boolean;
+  tiktok?: { privacyLevel?: string; brandOrganic?: boolean; brandedContent?: boolean };
 }
 
 export interface Post {

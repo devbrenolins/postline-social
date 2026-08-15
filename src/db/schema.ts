@@ -273,6 +273,16 @@ export const posts = pgTable(
         coverUrl?: string;
         thumbOffset?: number;
         shareToFeed?: boolean;
+        /**
+         * Exigências de interface do TikTok: a privacidade precisa ser
+         * escolhida pelo usuário (sem padrão) e a divulgação de conteúdo
+         * comercial é obrigatória quando ligada.
+         */
+        tiktok?: {
+          privacyLevel?: string;
+          brandOrganic?: boolean;
+          brandedContent?: boolean;
+        };
       }>()
       .default({}),
     // IDs de mídia no Instagram por conta (para buscar insights reais do post).

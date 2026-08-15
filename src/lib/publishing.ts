@@ -66,6 +66,8 @@ type PublishJob = {
   caption: string;
   format: string;
   extras: PublishExtras;
+  /** Escolhas que o TikTok exige que venham do usuário. */
+  tiktok?: { privacyLevel?: string; brandOrganic?: boolean; brandedContent?: boolean };
 };
 
 /**
@@ -272,12 +274,22 @@ async function publishToTikTok(accounts: Account[], job: PublishJob): Promise<{ 
         // O TikTok recusa `privacy_level` que a conta não ofereça, então a
         // consulta ao criador não é opcional.
         const info = await tiktok.getCreatorInfo(token);
-        const privacy = tiktok.resolvePrivacy(info.privacyOptions);
+        // A privacidade tem de vir da escolha do usuário no composer — as
+        // diretrizes do TikTok proíbem o app decidir por ele. `resolvePrivacy`
+        // só entra como rede de segurança se a opção escolhida sumir da conta.
+        const escolhida = job.tiktok?.privacyLevel as tiktok.PrivacyLevel | undefined;
+        if (!escolhida) throw new Error("Escolha quem pode ver a publicação no TikTok antes de publicar.");
+        if (job.tiktok?.brandedContent && escolhida === "SELF_ONLY") {
+          throw new Error("Conteúdo de parceria paga não pode ser privado no TikTok.");
+        }
+        const privacy = tiktok.resolvePrivacy(info.privacyOptions, escolhida);
         const opts: tiktok.PostOptions = {
           title: job.caption,
           disableComment: info.commentDisabled,
           disableDuet: info.duetDisabled,
           disableStitch: info.stitchDisabled,
+          brandOrganic: job.tiktok?.brandOrganic,
+          brandedContent: job.tiktok?.brandedContent,
         };
 
         const videos = job.mediaUrls.filter(isVideo);
@@ -376,6 +388,7 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
       thumbOffset: options.thumbOffset,
       shareToFeed: options.shareToFeed,
     },
+    tiktok: options.tiktok,
   };
 
   const results: PublishResult[] = [];

@@ -180,11 +180,11 @@ export type TikTokProfile = {
   displayName: string;
   avatarUrl: string | null;
   followers: number;
-  videos: number;
-  likes: number;
 };
 
-const USER_FIELDS = "open_id,avatar_url,display_name,username,follower_count,likes_count,video_count";
+// Só o que a interface realmente mostra: pedir campo que não é exibido levanta
+// pergunta na revisão do TikTok e não serve para nada.
+const USER_FIELDS = "open_id,avatar_url,display_name,username,follower_count";
 
 export async function getProfile(token: string): Promise<TikTokProfile> {
   const data = await call<{ user?: Record<string, unknown> }>(`/user/info/?fields=${USER_FIELDS}`, token, { method: "GET" });
@@ -195,8 +195,6 @@ export async function getProfile(token: string): Promise<TikTokProfile> {
     displayName: String(u.display_name ?? ""),
     avatarUrl: (u.avatar_url as string) ?? null,
     followers: Number(u.follower_count ?? 0),
-    videos: Number(u.video_count ?? 0),
-    likes: Number(u.likes_count ?? 0),
   };
 }
 
@@ -245,6 +243,9 @@ export type PostOptions = {
   disableStitch?: boolean;
   coverTimestampMs?: number;
   autoAddMusic?: boolean;
+  /** Divulgação de conteúdo comercial declarada pelo usuário. */
+  brandOrganic?: boolean;
+  brandedContent?: boolean;
 };
 
 /**
@@ -272,6 +273,8 @@ export async function postVideo(token: string, videoUrl: string, privacy: Privac
         disable_comment: opts.disableComment ?? false,
         disable_duet: opts.disableDuet ?? false,
         disable_stitch: opts.disableStitch ?? false,
+        brand_organic_toggle: opts.brandOrganic ?? false,
+        brand_content_toggle: opts.brandedContent ?? false,
         ...(opts.coverTimestampMs !== undefined ? { video_cover_timestamp_ms: opts.coverTimestampMs } : {}),
       },
       source_info: { source: "PULL_FROM_URL", video_url: videoUrl },
@@ -296,6 +299,8 @@ export async function postPhotos(token: string, photoUrls: string[], privacy: Pr
         privacy_level: privacy,
         disable_comment: opts.disableComment ?? false,
         auto_add_music: opts.autoAddMusic ?? true,
+        brand_organic_toggle: opts.brandOrganic ?? false,
+        brand_content_toggle: opts.brandedContent ?? false,
       },
       source_info: {
         source: "PULL_FROM_URL",

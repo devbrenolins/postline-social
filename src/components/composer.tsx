@@ -53,6 +53,22 @@ const FORMATS = [
  */
 const PUBLISHABLE: PlatformT[] = ["instagram", "x", "tiktok"];
 
+/** Dados que o TikTok exige exibir antes de publicar. */
+type TikTokCreator = {
+  nickname: string;
+  privacyOptions: string[];
+  commentDisabled: boolean;
+  duetDisabled: boolean;
+  stitchDisabled: boolean;
+};
+
+const TIKTOK_PRIVACIDADE: Record<string, string> = {
+  PUBLIC_TO_EVERYONE: "Público",
+  FOLLOWER_OF_CREATOR: "Seguidores",
+  MUTUAL_FOLLOW_FRIENDS: "Amigos (seguimos um ao outro)",
+  SELF_ONLY: "Só eu (privado)",
+};
+
 const EMOJIS = ["✨", "🔥", "💡", "📌", "🤎", "🧡", "💪", "🥐", "☕", "🌿", "🏙️", "🍂", "🎬", "📖", "😍", "👏", "🙌", "💬", "🚀", "🎯", "🧭", "⛵", "🏔️", "🍜"];
 const HASHTAG_BANK = ["#socialmedia", "#marketingdigital", "#conteudo", "#branding", "#lancamento", "#dicadodia", "#trend", "#reels", "#carrossel", "#bts"];
 
@@ -88,6 +104,10 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
   const [mediaUrls, setMediaUrls] = useState<string[]>(editing?.mediaUrls ?? []);
   const [options, setOptions] = useState<PublishOptions>(editing?.publishOptions ?? {});
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [tiktokInfo, setTiktokInfo] = useState<TikTokCreator | null>(null);
+  const [tiktokErro, setTiktokErro] = useState<string | null>(null);
+  // Exigência do TikTok: o toggle de divulgação começa desligado.
+  const [divulgacao, setDivulgacao] = useState(false);
   const [scheduledAt, setScheduledAt] = useState<string>(
     toLocalInput(editing?.scheduledAt) || (opts.date ? `${opts.date}T10:00` : "")
   );
@@ -153,6 +173,29 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
     () => Math.min(...networks.map((n) => PLATFORM_META[n].charLimit)),
     [networks]
   );
+  // O TikTok exige mostrar o apelido do criador e as opções de privacidade
+  // reais da conta antes de publicar — por isso a consulta é ao abrir, não na
+  // hora de enviar.
+  const querTiktok = networks.includes("tiktok");
+  useEffect(() => {
+    if (!querTiktok || tiktokInfo || tiktokErro) return;
+    let ativo = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/tiktok/creator-info");
+        const data = await res.json();
+        const conta = data.accounts?.[0];
+        if (!ativo) return;
+        if (!conta) return setTiktokErro("Nenhuma conta do TikTok conectada.");
+        if (conta.error) return setTiktokErro(conta.error);
+        setTiktokInfo(conta);
+      } catch {
+        if (ativo) setTiktokErro("Não foi possível consultar o TikTok agora.");
+      }
+    })();
+    return () => { ativo = false; };
+  }, [querTiktok, tiktokInfo, tiktokErro]);
+
   const charPct = caption.length / charLimit;
   // O X é a única rede que quebramos em thread — nas outras, passar do limite
   // continua sendo erro.
@@ -166,6 +209,18 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
     if (target === "schedule" && !scheduledAt) return toast.error("Escolha data e hora para agendar.");
     if (networks.length === 0) return toast.error("Selecione ao menos uma rede social.");
     if (!caption.trim() && mediaUrls.length === 0) return toast.error("Escreva algo ou adicione mídia.");
+    // Regras do TikTok: privacidade escolhida pelo usuário e, com divulgação
+    // ligada, ao menos uma categoria marcada. Conteúdo de marca não pode ser privado.
+    if (querTiktok && target !== "draft") {
+      const tt = options.tiktok;
+      if (!tt?.privacyLevel) return toast.error("Escolha quem pode ver a publicação no TikTok.");
+      if (divulgacao && !tt.brandOrganic && !tt.brandedContent) {
+        return toast.error("Marque 'Sua marca' ou 'Conteúdo de parceria' para publicar no TikTok.");
+      }
+      if (tt.brandedContent && tt.privacyLevel === "SELF_ONLY") {
+        return toast.error("Conteúdo de parceria paga não pode ser privado no TikTok.");
+      }
+    }
     setBusy(target);
     try {
       const payload = {
@@ -330,6 +385,101 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
             ))}
           </div>
         </div>
+
+        {/* Exigências de interface do TikTok (Content Posting API) */}
+        {querTiktok && (
+          <div className="space-y-3 rounded-xl border border-border p-3.5">
+            <div className="flex items-center gap-2">
+              <PlatformIcon platform="tiktok" size={14} />
+              <p className="text-[12.5px] font-medium">TikTok</p>
+              {tiktokInfo && (
+                // O TikTok exige deixar claro em qual conta o conteúdo vai cair.
+                <span className="ml-auto text-[11.5px] text-muted">Publicando como <b className="font-semibold text-foreground">{tiktokInfo.nickname}</b></span>
+              )}
+            </div>
+
+            {tiktokErro ? (
+              <p className="text-[12px] text-danger">{tiktokErro}</p>
+            ) : !tiktokInfo ? (
+              <div className="skeleton h-9" />
+            ) : (
+              <>
+                <div>
+                  <label className={labelCls} htmlFor="ttPrivacy">Quem pode ver</label>
+                  <select
+                    id="ttPrivacy" className={inputCls} disabled={!canInteract}
+                    value={options.tiktok?.privacyLevel ?? ""}
+                    onChange={(e) => setOptions((o) => ({ ...o, tiktok: { ...o.tiktok, privacyLevel: e.target.value } }))}
+                  >
+                    {/* Sem valor padrão: o TikTok exige escolha explícita. */}
+                    <option value="" disabled>Selecione…</option>
+                    {tiktokInfo.privacyOptions.map((p) => (
+                      <option key={p} value={p}>{TIKTOK_PRIVACIDADE[p] ?? p}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <label className="flex items-center gap-2 text-[12.5px]">
+                  <input
+                    type="checkbox" disabled={!canInteract} checked={divulgacao}
+                    onChange={(e) => {
+                      setDivulgacao(e.target.checked);
+                      if (!e.target.checked) setOptions((o) => ({ ...o, tiktok: { ...o.tiktok, brandOrganic: false, brandedContent: false } }));
+                    }}
+                    className="h-3.5 w-3.5 accent-[var(--accent)]"
+                  />
+                  Divulgar conteúdo comercial
+                </label>
+
+                {divulgacao && (
+                  <div className="space-y-2 rounded-lg bg-surface-2/60 px-3 py-2.5">
+                    <label className="flex items-start gap-2 text-[12.5px]">
+                      <input
+                        type="checkbox" disabled={!canInteract} className="mt-0.5 h-3.5 w-3.5 accent-[var(--accent)]"
+                        checked={options.tiktok?.brandOrganic ?? false}
+                        onChange={(e) => setOptions((o) => ({ ...o, tiktok: { ...o.tiktok, brandOrganic: e.target.checked } }))}
+                      />
+                      <span>
+                        Sua marca
+                        <span className="block text-[11px] text-muted">Será rotulado como &quot;Conteúdo promocional&quot;.</span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 text-[12.5px]">
+                      <input
+                        type="checkbox" disabled={!canInteract} className="mt-0.5 h-3.5 w-3.5 accent-[var(--accent)]"
+                        checked={options.tiktok?.brandedContent ?? false}
+                        onChange={(e) => setOptions((o) => ({ ...o, tiktok: { ...o.tiktok, brandedContent: e.target.checked } }))}
+                      />
+                      <span>
+                        Conteúdo de parceria
+                        <span className="block text-[11px] text-muted">Será rotulado como &quot;Parceria paga&quot;. Não pode ser privado.</span>
+                      </span>
+                    </label>
+                  </div>
+                )}
+
+                {(tiktokInfo.commentDisabled || tiktokInfo.duetDisabled || tiktokInfo.stitchDisabled) && (
+                  <p className="text-[11px] text-muted">
+                    Esta conta desativou{" "}
+                    {[tiktokInfo.commentDisabled && "comentários", tiktokInfo.duetDisabled && "dueto", tiktokInfo.stitchDisabled && "stitch"]
+                      .filter(Boolean).join(", ")}
+                    {" "}— respeitamos a configuração do perfil.
+                  </p>
+                )}
+
+                {/* Texto exigido literalmente pelas diretrizes do TikTok. */}
+                <p className="text-[11px] text-muted">
+                  {options.tiktok?.brandedContent
+                    ? "By posting, you agree to TikTok's Branded Content Policy and Music Usage Confirmation."
+                    : "By posting, you agree to TikTok's Music Usage Confirmation."}
+                </p>
+                <p className="text-[11px] text-muted">
+                  Depois de publicar, o TikTok pode levar alguns minutos processando até o conteúdo aparecer no perfil.
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Opções de publicação do Instagram */}
         {networks.includes("instagram") && (
