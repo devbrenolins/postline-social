@@ -10,20 +10,21 @@ import {
   type PublishExtras,
 } from "@/lib/instagram";
 import { withFreshToken, uploadMedia, createPost, splitIntoThread, X_CHAR_LIMIT } from "@/lib/x";
+import * as tiktok from "@/lib/tiktok";
 import type { Platform } from "@/db/schema";
 
 export type PublishResult = { account: string; ok: boolean; mediaId?: string; error?: string };
 
 /** Redes com integração de verdade. As demais aparecem na UI mas não publicam. */
-const SUPPORTED: Platform[] = ["instagram", "x"];
+const SUPPORTED: Platform[] = ["instagram", "x", "tiktok"];
 
 /**
- * Teto mensal de publicações no X.
+ * Teto mensal de publicações no X — freio de gasto, não limite técnico.
  *
- * O plano gratuito limita posts por **app**, somando todos os workspaces, e a
- * API não expõe o consumo — então contamos aqui. É conservador de propósito:
- * uma thread gasta uma unidade por tweet e esta contagem enxerga o post inteiro
- * como um. Ajuste por `X_MONTHLY_POST_LIMIT`.
+ * O X cobra por publicação (US$ 0,015, ou US$ 0,20 quando o texto tem link) a
+ * partir de crédito pré-pago. Sem um teto, um agendamento em massa ou um laço
+ * defeituoso consome saldo real. A contagem é por post, então uma thread gasta
+ * mais que o contabilizado aqui. Ajuste por `X_MONTHLY_POST_LIMIT`.
  */
 const X_MONTHLY_LIMIT = Number(process.env.X_MONTHLY_POST_LIMIT ?? 450);
 
@@ -175,7 +176,7 @@ async function publishToX(accounts: Account[], job: PublishJob): Promise<{ resul
   const used = await countXPostsThisMonth();
   if (used >= X_MONTHLY_LIMIT) {
     return {
-      results: [{ account: "X", ok: false, error: `Cota mensal do X atingida (${used}/${X_MONTHLY_LIMIT}). O plano gratuito limita publicações por mês.` }],
+      results: [{ account: "X", ok: false, error: `Teto mensal de publicações no X atingido (${used}/${X_MONTHLY_LIMIT}). Ajuste X_MONTHLY_POST_LIMIT se for intencional.` }],
       media,
     };
   }
@@ -240,6 +241,91 @@ async function countXPostsThisMonth(): Promise<number> {
 }
 
 /* ------------------------------------------------------------------ */
+/*  TikTok                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Quanto esperamos o TikTok baixar e processar a mídia antes de desistir. */
+const TIKTOK_POLL_ATTEMPTS = 10;
+const TIKTOK_POLL_DELAY_MS = 3000;
+
+/**
+ * Publica no TikTok via `PULL_FROM_URL`: mandamos a URL e ele baixa.
+ *
+ * O `init` só enfileira — o resultado real vem no polling de status. Sem essa
+ * espera, um vídeo recusado por formato ou por domínio não verificado seria
+ * marcado como publicado aqui e nunca apareceria no perfil.
+ */
+async function publishToTikTok(accounts: Account[], job: PublishJob): Promise<{ results: PublishResult[]; media: Media[] }> {
+  const results: PublishResult[] = [];
+  const media: Media[] = [];
+
+  if (accounts.length === 0) {
+    return { results: [{ account: "TikTok", ok: false, error: "Nenhuma conta do TikTok conectada. Conecte uma em Clientes." }], media };
+  }
+  if (job.mediaUrls.length === 0) {
+    return { results: [{ account: "TikTok", ok: false, error: "O TikTok exige um vídeo ou fotos para publicar." }], media };
+  }
+
+  for (const acc of accounts) {
+    try {
+      const publishId = await tiktok.withFreshToken(acc, async (token) => {
+        // O TikTok recusa `privacy_level` que a conta não ofereça, então a
+        // consulta ao criador não é opcional.
+        const info = await tiktok.getCreatorInfo(token);
+        const privacy = tiktok.resolvePrivacy(info.privacyOptions);
+        const opts: tiktok.PostOptions = {
+          title: job.caption,
+          disableComment: info.commentDisabled,
+          disableDuet: info.duetDisabled,
+          disableStitch: info.stitchDisabled,
+        };
+
+        const videos = job.mediaUrls.filter(isVideo);
+        return videos.length > 0
+          ? tiktok.postVideo(token, videos[0], privacy, opts)
+          : tiktok.postPhotos(token, job.mediaUrls, privacy, opts);
+      });
+
+      const final = await aguardarTikTok(acc, publishId);
+      if (final.ok) {
+        results.push({ account: acc.handle, ok: true, mediaId: final.postId || publishId, error: final.aviso });
+        media.push({ socialAccountId: acc.id, mediaId: final.postId || publishId });
+      } else {
+        results.push({ account: acc.handle, ok: false, error: final.erro });
+      }
+    } catch (e) {
+      results.push({ account: acc.handle, ok: false, error: e instanceof Error ? e.message : "Falha ao publicar no TikTok." });
+    }
+  }
+  return { results, media };
+}
+
+/** Acompanha o processamento até concluir, falhar ou estourar a paciência. */
+async function aguardarTikTok(
+  acc: Account,
+  publishId: string
+): Promise<{ ok: boolean; postId?: string; erro?: string; aviso?: string }> {
+  for (let i = 0; i < TIKTOK_POLL_ATTEMPTS; i++) {
+    await new Promise((r) => setTimeout(r, TIKTOK_POLL_DELAY_MS));
+    const status = await tiktok.withFreshToken(acc, (token) => tiktok.getPublishStatus(token, publishId));
+
+    if (status.status === "PUBLISH_COMPLETE") {
+      return { ok: true, postId: status.postIds[0] };
+    }
+    if (status.status === "FAILED") {
+      return { ok: false, erro: tiktok.explainFailure(status.failReason) };
+    }
+    if (status.status === "SEND_TO_USER_INBOX") {
+      // App sem auditoria, ou modo rascunho: saiu do nosso lado, mas o usuário
+      // precisa concluir dentro do TikTok.
+      return { ok: true, postId: publishId, aviso: "Enviado para o TikTok, mas ficou na caixa de entrada do app — conclua a publicação no aplicativo." };
+    }
+  }
+  // Ainda processando: não é erro, mas também não dá para prometer que saiu.
+  return { ok: true, postId: publishId, aviso: "O TikTok ainda está processando a mídia. Confira no aplicativo em alguns minutos." };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Orquestração                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -273,7 +359,7 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
     await fail("A mídia precisa ser uma URL pública (http/https). Faça upload da imagem antes de publicar.");
   }
   if (!networks.some((n) => SUPPORTED.includes(n))) {
-    await fail(`Ainda não publicamos em ${networks.join(", ")}. Marque Instagram ou X no post.`);
+    await fail(`Ainda não publicamos em ${networks.join(", ")}. Marque Instagram, X ou TikTok no post.`);
   }
 
   const options = post.publishOptions ?? {};
@@ -301,7 +387,12 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
       continue;
     }
     const accounts = await accountsFor(workspaceId, network, post.clientId);
-    const out = network === "instagram" ? await publishToInstagram(accounts, job) : await publishToX(accounts, job);
+    const out =
+      network === "instagram"
+        ? await publishToInstagram(accounts, job)
+        : network === "x"
+          ? await publishToX(accounts, job)
+          : await publishToTikTok(accounts, job);
     results.push(...out.results);
     externalMedia.push(...out.media);
   }

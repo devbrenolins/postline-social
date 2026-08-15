@@ -248,7 +248,13 @@ function IntegrationsTab() {
           const acc = ws?.accounts.find((a) => a.platform === p);
           const isInstagram = p === "instagram";
           // Redes com integração de verdade. O resto ainda é só visual.
-          const connectUrl = isInstagram ? "/api/meta/connect" : p === "x" ? "/api/x/connect" : null;
+          const connectUrl = isInstagram
+            ? "/api/meta/connect"
+            : p === "x"
+              ? "/api/x/connect"
+              : p === "tiktok"
+                ? "/api/tiktok/connect"
+                : null;
           return (
             <div key={p} className="flex items-center gap-3.5 rounded-xl border border-border px-4 py-3">
               <PlatformChip platform={p} size={16} />
@@ -260,8 +266,10 @@ function IntegrationsTab() {
                     : isInstagram
                       ? "Conecte via Instagram Business"
                       : p === "x"
-                        ? "Publicação e seguidores (plano gratuito da API)"
-                        : "Nenhuma conta conectada"}
+                        ? "Publicação e seguidores (a API do X cobra por post)"
+                        : p === "tiktok"
+                          ? "Publicação de vídeo e fotos + seguidores"
+                          : "Nenhuma conta conectada"}
                 </p>
               </div>
               {isConn ? <Badge tone="success">Conectado</Badge> : <Badge>Inativo</Badge>}

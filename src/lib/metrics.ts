@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { posts, socialAccounts, analyticsDaily, analyticsBreakdowns } from "@/db/schema";
 import { withFreshToken, getMe } from "@/lib/x";
+import * as tiktok from "@/lib/tiktok";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   getAccountSnapshot,
@@ -61,6 +62,7 @@ export async function refreshWorkspaceMetrics(workspaceId: string, ttlMinutes = 
   // O X não entra no laço abaixo: no plano gratuito a única leitura disponível
   // é o perfil, então atualizamos só a contagem de seguidores.
   await refreshXAccounts(workspaceId, ttlMs);
+  await refreshTikTokAccounts(workspaceId, ttlMs);
 
   if (usable.length === 0) return;
 
@@ -402,11 +404,15 @@ async function syncPublishedPosts(workspaceId: string, accounts: Account[], ttlM
 /**
  * Atualiza os seguidores das contas do X.
  *
- * O plano gratuito não expõe métrica de post nem histórico, então não há o que
- * gravar em `analytics_daily` — só o número atual do perfil, que alimenta o KPI
- * de seguidores e a lista de contas conectadas.
+ * O X não expõe métrica de post nem histórico sem custo relevante, então não há
+ * o que gravar em `analytics_daily` — só o número atual do perfil, que alimenta
+ * o KPI de seguidores e a lista de contas conectadas.
  */
 async function refreshXAccounts(workspaceId: string, ttlMs: number): Promise<void> {
+  // Cada leitura do X é cobrada (owned read, US$ 0,001). A 30 min por conta
+  // dariam ~48 chamadas/dia só para exibir seguidores — número que não muda
+  // nesse ritmo. O piso de 6h corta isso em 12x sem perda prática.
+  const ttl = Math.max(ttlMs, 6 * 60 * 60 * 1000);
   const accounts = await db
     .select()
     .from(socialAccounts)
@@ -422,7 +428,7 @@ async function refreshXAccounts(workspaceId: string, ttlMs: number): Promise<voi
   const now = Date.now();
   for (const acc of accounts) {
     if (!acc.accessToken) continue;
-    if (ttlMs > 0 && acc.lastSyncedAt && now - new Date(acc.lastSyncedAt).getTime() < ttlMs) continue;
+    if (ttlMs > 0 && acc.lastSyncedAt && now - new Date(acc.lastSyncedAt).getTime() < ttl) continue;
     try {
       const me = await withFreshToken(acc, (token) => getMe(token));
       await db
@@ -437,6 +443,47 @@ async function refreshXAccounts(workspaceId: string, ttlMs: number): Promise<voi
         .where(eq(socialAccounts.id, acc.id));
     } catch {
       // Token revogado ou limite de uso — não derruba a sincronização do resto.
+    }
+  }
+}
+
+/**
+ * Atualiza seguidores das contas do TikTok.
+ *
+ * A API de conteúdo não dá métrica por post sem escopo extra e auditoria, então
+ * por ora ficamos no perfil — que já alimenta o KPI de seguidores.
+ */
+async function refreshTikTokAccounts(workspaceId: string, ttlMs: number): Promise<void> {
+  const accounts = await db
+    .select()
+    .from(socialAccounts)
+    .where(
+      and(
+        eq(socialAccounts.workspaceId, workspaceId),
+        eq(socialAccounts.platform, "tiktok"),
+        eq(socialAccounts.connected, true),
+        isNull(socialAccounts.deletedAt)
+      )
+    );
+
+  const now = Date.now();
+  for (const acc of accounts) {
+    if (!acc.accessToken) continue;
+    if (ttlMs > 0 && acc.lastSyncedAt && now - new Date(acc.lastSyncedAt).getTime() < ttlMs) continue;
+    try {
+      const profile = await tiktok.withFreshToken(acc, (token) => tiktok.getProfile(token));
+      await db
+        .update(socialAccounts)
+        .set({
+          handle: profile.username || acc.handle,
+          followers: profile.followers,
+          avatarUrl: profile.avatarUrl ?? acc.avatarUrl,
+          lastSyncedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(socialAccounts.id, acc.id));
+    } catch {
+      // Token revogado ou limite de uso — não derruba o resto.
     }
   }
 }

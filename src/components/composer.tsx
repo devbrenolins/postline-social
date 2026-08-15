@@ -51,7 +51,7 @@ const FORMATS = [
  * não sumir com a promessa do produto, mas desabilitadas — antes dava para
  * agendar num LinkedIn que nunca ia sair, e o erro só aparecia no horário.
  */
-const PUBLISHABLE: PlatformT[] = ["instagram", "x"];
+const PUBLISHABLE: PlatformT[] = ["instagram", "x", "tiktok"];
 
 const EMOJIS = ["✨", "🔥", "💡", "📌", "🤎", "🧡", "💪", "🥐", "☕", "🌿", "🏙️", "🍂", "🎬", "📖", "😍", "👏", "🙌", "💬", "🚀", "🎯", "🧭", "⛵", "🏔️", "🍜"];
 const HASHTAG_BANK = ["#socialmedia", "#marketingdigital", "#conteudo", "#branding", "#lancamento", "#dicadodia", "#trend", "#reels", "#carrossel", "#bts"];
@@ -180,7 +180,7 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
       } else {
         const res = await fetch("/api/posts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
+        if (!res.ok) throw new Error(data.error || "Falha ao publicar.");
         id = data.post.id;
       }
       // A regra só pode ser gravada depois que a publicação tem id.

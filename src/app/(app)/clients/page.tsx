@@ -50,6 +50,9 @@ export default function ClientsPage() {
           <Button variant="outline" onClick={() => (window.location.href = "/api/x/connect")}>
             <Link2 size={15} /> Conectar X
           </Button>
+          <Button variant="outline" onClick={() => (window.location.href = "/api/tiktok/connect")}>
+            <Link2 size={15} /> Conectar TikTok
+          </Button>
           <Button onClick={() => setCreating(true)}><Plus size={15} /> Novo cliente</Button>
         </div>
       </div>

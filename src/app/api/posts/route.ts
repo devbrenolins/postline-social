@@ -79,8 +79,11 @@ export async function POST(req: NextRequest) {
     try {
       const { status: pubStatus, results } = await publishPost(post.id, user.workspaceId);
       const [fresh] = await db.select().from(posts).where(eq(posts.id, post.id)).limit(1);
+      // Sem isto o cliente recebia 502 sem motivo nenhum: o erro real ficava
+      // só dentro de `results` e a interface não tinha o que mostrar.
+      const motivo = results.filter((r) => !r.ok).map((r) => `${r.account}: ${r.error}`).join(" · ");
       return NextResponse.json(
-        { post: fresh ?? post, results },
+        { post: fresh ?? post, results, ...(pubStatus === "published" ? {} : { error: motivo || "Falha ao publicar." }) },
         { status: pubStatus === "published" ? 201 : 502 }
       );
     } catch (e) {

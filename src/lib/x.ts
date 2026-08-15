@@ -126,6 +126,11 @@ async function call<T>(path: string, token: string, init: RequestInit = {}): Pro
   const data = text ? (JSON.parse(text) as T & XError) : ({} as T & XError);
   if (!res.ok) {
     const detail = data.detail || data.errors?.[0]?.message || data.title;
+    // O X é pré-pago por uso: 402 significa saldo esgotado (a doc avisa que o
+    // saldo pode ficar levemente negativo e aí tudo é bloqueado).
+    if (res.status === 402) {
+      throw new Error("Sem crédito na conta de desenvolvedor do X. Adicione saldo no Developer Console para voltar a publicar.");
+    }
     // 403 aqui quase sempre é recurso fora do plano gratuito, não erro de código.
     if (res.status === 403) {
       throw new Error(detail || "O X recusou a operação — normalmente é recurso fora do plano gratuito.");

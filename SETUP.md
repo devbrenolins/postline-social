@@ -283,21 +283,35 @@ arte em texto.
 
 ---
 
-## 4b. X (Twitter) — só o que é gratuito
+## 4b. X (Twitter)
 
-> O plano gratuito da API do X publica, mas não lê métrica. A integração aqui
-> cobre exatamente isso — nada que exija plano pago foi implementado.
+> O X **não tem plano gratuito**. Desde a mudança para cobrança por uso, você
+> compra crédito no Developer Console e cada chamada consome saldo. Sem saldo, a
+> API responde `402 credits depleted` e nada publica.
 
-**O que funciona**
-- Conectar a conta por OAuth 2.0 (PKCE)
-- Handle, nome, avatar e **contagem de seguidores**
+**Preços por operação** (confira em <https://docs.x.com/x-api/getting-started/pricing>,
+que muda):
+
+| Operação | Custo |
+|---|---|
+| Criar post | US$ 0,015 |
+| Criar post **com link** | US$ 0,200 |
+| Leitura da própria conta (*owned read*) | US$ 0,001 |
+
+O salto de 13x quando o texto tem link é o número que decide a viabilidade: 60
+posts/mês sem link custam ~US$ 0,90; com link, ~US$ 12.
+
+**O que a integração faz**
+- Conectar a conta por OAuth 2.0 (PKCE), com renovação automática de token
+- Handle, nome, avatar e contagem de seguidores
 - Publicar texto, com até 4 mídias
 - **Thread automática**: texto acima de 280 caracteres é quebrado e publicado
   encadeado, com marcador `(1/3)`
 
-**O que não existe e por quê**
-- Métricas por post, busca, timeline e menções: exigem plano pago (Basic ~US$200/mês)
-- Por isso o X não aparece nos gráficos de Análises — só na contagem de seguidores
+**O que não faz**
+- Métricas por post, busca, timeline e menções — cada leitura é cobrada por
+  recurso e não compensa para o produto. Por isso o X não aparece nos gráficos
+  de Análises, só na contagem de seguidores.
 
 ### Configuração
 
@@ -306,26 +320,87 @@ arte em texto.
    - Tipo: **Web App, Automated App or Bot** (client confidencial)
    - Permissões: **Read and write**
    - Callback URI: `https://SEU_DOMINIO/api/x/connect/callback`
+     (para desenvolver, adicione também `http://127.0.0.1:3000/api/x/connect/callback`
+     e aponte a `NEXT_PUBLIC_APP_URL` para o mesmo endereço — a comparação é exata)
    - Website URL: o domínio do app
 3. Copie **OAuth 2.0 Client ID e Client Secret** para `X_CLIENT_ID` e
    `X_CLIENT_SECRET`. (Não são a API Key/Secret do OAuth 1.0a.)
-4. Escopos pedidos: `tweet.read`, `tweet.write`, `users.read`, `media.write`,
+4. **Adicione crédito** no Developer Console. Sem saldo, conectar a conta
+   funciona e publicar falha com `402`.
+5. Escopos pedidos: `tweet.read`, `tweet.write`, `users.read`, `media.write`,
    `offline.access`.
 
    > `offline.access` é obrigatório: o access token do X dura ~2h. Sem o refresh
    > token a conta se desconectaria sozinha entre um agendamento e a publicação.
 
-### Cota mensal
+### Controle de gasto
 
-O limite gratuito é por **app**, somando todos os workspaces, e a API não expõe o
-consumo. O Postline conta as publicações do mês e recusa antes de estourar —
-ajuste em `X_MONTHLY_POST_LIMIT` (padrão 450). A contagem é conservadora: uma
-thread gasta uma unidade por tweet, mas é contada como um post.
+Como o saldo é dinheiro real, duas travas:
+
+- `X_MONTHLY_POST_LIMIT` (padrão 450) recusa publicações depois do teto mensal.
+  Serve contra agendamento em massa e laço defeituoso, não contra limite técnico.
+- A contagem de seguidores só é atualizada a cada 6h por conta. A 30 min seriam
+  ~48 leituras/dia por cliente, para um número que muda devagar.
 
 ### Envio de mídia
 
-É a parte mais frágil do plano gratuito. Se o upload falhar, o post sai **só com
-o texto** e o resultado avisa — melhor que perder a publicação inteira.
+Se o upload falhar, o post sai **só com o texto** e o resultado avisa — melhor
+que perder a publicação inteira.
+
+---
+
+## 4c. TikTok
+
+> A API do TikTok é **gratuita**, mas tem dois portões que não dependem de
+> código. Sem eles a integração conecta e não publica de verdade.
+
+### Os dois portões
+
+1. **Auditoria do app.** Enquanto o cliente de API não é auditado, *todo
+   conteúdo publicado fica restrito à visualização privada*. Ou seja: o post
+   entra na conta, mas ninguém além do dono vê. Solicite a auditoria no portal.
+2. **Posse da URL.** Publicamos por `PULL_FROM_URL` (o TikTok baixa a mídia do
+   nosso endereço). Isso exige cadastrar o domínio em **URL properties** no
+   portal e provar a posse — via registro DNS, no caso de domínio. Sem isso a
+   API responde `url_ownership_unverified`.
+
+### Configuração
+
+1. Crie um app em <https://developers.tiktok.com> e adicione os produtos
+   **Login Kit** e **Content Posting API**.
+2. Copie **Client key** e **Client secret** para `TIKTOK_CLIENT_KEY` e
+   `TIKTOK_CLIENT_SECRET`.
+
+   > É `client_key`, não `client_id` — o TikTok foge do nome usual do OAuth.
+
+3. Redirect URI: `https://SEU_DOMINIO/api/tiktok/connect/callback`
+
+   > **Precisa ser HTTPS**, absoluto, sem parâmetros e sem `#`. Não existe
+   > exceção para `localhost`: para testar local, use um túnel HTTPS.
+
+4. Escopos pedidos: `user.info.basic`, `user.info.profile`, `user.info.stats`,
+   `video.publish`.
+
+   > `video.publish` publica no perfil; `video.upload` só manda para o rascunho
+   > do app e não serve para agendamento.
+
+5. Verifique o domínio das mídias em **URL properties**.
+
+### O que a integração faz
+
+- Conectar a conta (token de 24h, refresh de 365 dias com rotação)
+- Handle, nome, avatar e **contagem de seguidores**
+- Publicar **vídeo** (até 10 min, 4 GB) ou **carrossel de fotos** (até 35)
+- Consultar o criador antes de publicar e escolher um `privacy_level` que a
+  conta aceite — conta privada não tem `PUBLIC_TO_EVERYONE`, e mandar mesmo
+  assim derruba a publicação
+- Acompanhar o processamento até `PUBLISH_COMPLETE` ou `FAILED`, traduzindo o
+  motivo da falha
+
+### O que não faz
+
+- Métricas por vídeo: exigem escopo e auditoria adicionais. Por isso o TikTok
+  aparece só na contagem de seguidores, não nos gráficos de Análises.
 
 ---
 
