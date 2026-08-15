@@ -72,7 +72,14 @@ export async function POST(req: NextRequest) {
         )
         .limit(1)
     )[0];
-    if (!account?.accessToken) continue;
+    if (!account?.accessToken) {
+      // Evento para uma conta que não conhecemos. Acontece com o payload de
+      // exemplo do botão "Teste" da Meta (IDs fictícios) e aconteceria de novo
+      // se surgir um terceiro tipo de ID — antes isso sumia sem deixar rastro,
+      // com HTTP 200, o que torna o diagnóstico quase impossível.
+      console.warn(`[meta/webhook] evento ignorado: nenhuma conta conectada com o id ${igId}`);
+      continue;
+    }
 
     // Guarda o ID que a Meta usou, para a conta passar a casar pelos dois.
     if (igId !== account.externalId && account.appScopedId !== igId) {

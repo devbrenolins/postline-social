@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { posts, socialAccounts, analyticsDaily, analyticsBreakdowns } from "@/db/schema";
+import { withFreshToken, getMe } from "@/lib/x";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   getAccountSnapshot,
@@ -55,9 +56,13 @@ export async function refreshWorkspaceMetrics(workspaceId: string, ttlMinutes = 
       )
     );
   const usable = accounts.filter((a) => a.externalId && a.accessToken);
-  if (usable.length === 0) return;
-
   const ttlMs = ttlMinutes * 60_000;
+
+  // O X não entra no laço abaixo: no plano gratuito a única leitura disponível
+  // é o perfil, então atualizamos só a contagem de seguidores.
+  await refreshXAccounts(workspaceId, ttlMs);
+
+  if (usable.length === 0) return;
 
   for (const acc of usable) {
     try {
@@ -390,6 +395,48 @@ async function syncPublishedPosts(workspaceId: string, accounts: Account[], ttlM
     if (ok) {
       if (reels > 0) agg.avgWatchTime = Math.round(agg.avgWatchTime / reels);
       await db.update(posts).set({ metrics: agg, metricsSyncedAt: new Date() }).where(eq(posts.id, post.id));
+    }
+  }
+}
+
+/**
+ * Atualiza os seguidores das contas do X.
+ *
+ * O plano gratuito não expõe métrica de post nem histórico, então não há o que
+ * gravar em `analytics_daily` — só o número atual do perfil, que alimenta o KPI
+ * de seguidores e a lista de contas conectadas.
+ */
+async function refreshXAccounts(workspaceId: string, ttlMs: number): Promise<void> {
+  const accounts = await db
+    .select()
+    .from(socialAccounts)
+    .where(
+      and(
+        eq(socialAccounts.workspaceId, workspaceId),
+        eq(socialAccounts.platform, "x"),
+        eq(socialAccounts.connected, true),
+        isNull(socialAccounts.deletedAt)
+      )
+    );
+
+  const now = Date.now();
+  for (const acc of accounts) {
+    if (!acc.accessToken) continue;
+    if (ttlMs > 0 && acc.lastSyncedAt && now - new Date(acc.lastSyncedAt).getTime() < ttlMs) continue;
+    try {
+      const me = await withFreshToken(acc, (token) => getMe(token));
+      await db
+        .update(socialAccounts)
+        .set({
+          handle: me.username || acc.handle,
+          followers: me.followers,
+          avatarUrl: me.avatarUrl ?? acc.avatarUrl,
+          lastSyncedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(socialAccounts.id, acc.id));
+    } catch {
+      // Token revogado ou limite de uso — não derruba a sincronização do resto.
     }
   }
 }

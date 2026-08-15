@@ -46,6 +46,13 @@ const FORMATS = [
   { value: "pdf", label: "PDF", icon: FileText },
 ] as const;
 
+/**
+ * Redes que o publisher realmente publica. As demais continuam visíveis para
+ * não sumir com a promessa do produto, mas desabilitadas — antes dava para
+ * agendar num LinkedIn que nunca ia sair, e o erro só aparecia no horário.
+ */
+const PUBLISHABLE: PlatformT[] = ["instagram", "x"];
+
 const EMOJIS = ["✨", "🔥", "💡", "📌", "🤎", "🧡", "💪", "🥐", "☕", "🌿", "🏙️", "🍂", "🎬", "📖", "😍", "👏", "🙌", "💬", "🚀", "🎯", "🧭", "⛵", "🏔️", "🍜"];
 const HASHTAG_BANK = ["#socialmedia", "#marketingdigital", "#conteudo", "#branding", "#lancamento", "#dicadodia", "#trend", "#reels", "#carrossel", "#bts"];
 
@@ -147,6 +154,10 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
     [networks]
   );
   const charPct = caption.length / charLimit;
+  // O X é a única rede que quebramos em thread — nas outras, passar do limite
+  // continua sendo erro.
+  const tweetsNaThread = Math.max(1, Math.ceil(caption.length / 272));
+  const viraThread = networks.includes("x") && networks.length === 1 && caption.length > 280;
 
   const client = ws?.clients.find((c) => c.id === clientId);
   const account = ws?.accounts.find((a) => a.clientId === clientId && networks.includes(a.platform)) ?? ws?.accounts[0];
@@ -279,18 +290,22 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
           <div className="flex flex-wrap gap-2" role="group" aria-label="Redes sociais">
             {(Object.keys(PLATFORM_META) as PlatformT[]).map((p) => {
               const active = networks.includes(p);
+              const publishable = PUBLISHABLE.includes(p);
               return (
                 <button
-                  key={p} type="button" disabled={!canInteract} aria-pressed={active}
+                  key={p} type="button" disabled={!canInteract || !publishable} aria-pressed={active}
+                  title={publishable ? undefined : `Integração do ${PLATFORM_META[p].name} ainda não disponível`}
                   onClick={() => setNetworks((ns) => active ? ns.filter((n) => n !== p) : [...ns, p])}
                   className={cn(
                     "flex items-center gap-2 rounded-xl border px-3 py-2 text-[12.5px] font-medium transition-all duration-150",
-                    active ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:border-border-strong hover:text-foreground"
+                    active ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:border-border-strong hover:text-foreground",
+                    !publishable && "cursor-not-allowed opacity-45 hover:border-border hover:text-muted"
                   )}
                 >
                   <span style={{ color: active ? PLATFORM_META[p].color : undefined }}><PlatformIcon platform={p} size={14} /></span>
                   {PLATFORM_META[p].name}
                   {active && <Check size={12} />}
+                  {!publishable && <span className="text-[10px] font-normal">em breve</span>}
                 </button>
               );
             })}
@@ -449,9 +464,13 @@ function Editor({ opts, close }: { opts: OpenOpts; close: () => void }) {
                 <circle cx="12" cy="12" r="9" fill="none" stroke={charPct > 1 ? "var(--danger)" : charPct > 0.85 ? "var(--warning)" : "var(--accent)"}
                   strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${Math.min(charPct, 1) * 56.5} 56.5`} />
               </svg>
-              <span className={cn("text-[11.5px] tnum", charPct > 1 ? "font-semibold text-danger" : "text-muted")}>
+              <span className={cn("text-[11.5px] tnum", charPct > 1 && !viraThread ? "font-semibold text-danger" : "text-muted")}>
                 {caption.length.toLocaleString("pt-BR")}/{charLimit.toLocaleString("pt-BR")}
               </span>
+              {/* No X o texto longo não é erro: vira thread na publicação. */}
+              {viraThread && (
+                <span className="text-[11.5px] text-muted">· thread de {tweetsNaThread} posts</span>
+              )}
             </div>
           </div>
         </div>

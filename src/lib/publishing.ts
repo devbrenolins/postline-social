@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { posts, socialAccounts } from "@/db/schema";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, gte, isNull, or, sql } from "drizzle-orm";
 import {
   createMediaContainer,
   createCarouselContainer,
@@ -9,12 +9,34 @@ import {
   getPublishingLimit,
   type PublishExtras,
 } from "@/lib/instagram";
+import { withFreshToken, uploadMedia, createPost, splitIntoThread, X_CHAR_LIMIT } from "@/lib/x";
+import type { Platform } from "@/db/schema";
 
 export type PublishResult = { account: string; ok: boolean; mediaId?: string; error?: string };
+
+/** Redes com integração de verdade. As demais aparecem na UI mas não publicam. */
+const SUPPORTED: Platform[] = ["instagram", "x"];
+
+/**
+ * Teto mensal de publicações no X.
+ *
+ * O plano gratuito limita posts por **app**, somando todos os workspaces, e a
+ * API não expõe o consumo — então contamos aqui. É conservador de propósito:
+ * uma thread gasta uma unidade por tweet e esta contagem enxerga o post inteiro
+ * como um. Ajuste por `X_MONTHLY_POST_LIMIT`.
+ */
+const X_MONTHLY_LIMIT = Number(process.env.X_MONTHLY_POST_LIMIT ?? 450);
+
+type Account = typeof socialAccounts.$inferSelect;
+type Media = { socialAccountId: string; mediaId: string };
 
 function isVideo(url: string) {
   return /\.(mp4|mov|m4v)(\?|$)/i.test(url);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Instagram                                                          */
+/* ------------------------------------------------------------------ */
 
 /**
  * Aguarda o container de mídia ficar FINISHED antes de publicar. O Instagram
@@ -52,7 +74,7 @@ type PublishJob = {
  * - `carousel` (ou várias mídias no feed): containers-filho + container pai.
  * - resto: imagem única, ou reel quando a mídia é vídeo.
  */
-async function publishToAccount(igId: string, token: string, handle: string, job: PublishJob): Promise<PublishResult[]> {
+async function publishToInstagramAccount(igId: string, token: string, handle: string, job: PublishJob): Promise<PublishResult[]> {
   const { mediaUrls, caption, format, extras } = job;
 
   try {
@@ -100,10 +122,132 @@ async function publishToAccount(igId: string, token: string, handle: string, job
   }
 }
 
+async function publishToInstagram(accounts: Account[], job: PublishJob): Promise<{ results: PublishResult[]; media: Media[] }> {
+  const results: PublishResult[] = [];
+  const media: Media[] = [];
+
+  if (accounts.length === 0) {
+    return { results: [{ account: "Instagram", ok: false, error: "Nenhuma conta Instagram conectada. Conecte uma em Clientes." }], media };
+  }
+  if (job.mediaUrls.length === 0) {
+    return { results: [{ account: "Instagram", ok: false, error: "O Instagram exige ao menos uma mídia para publicar." }], media };
+  }
+  if (job.format === "carousel" && job.mediaUrls.length < 2) {
+    return { results: [{ account: "Instagram", ok: false, error: "Um carrossel precisa de pelo menos 2 mídias." }], media };
+  }
+
+  for (const acc of accounts) {
+    // A Meta limita publicações por 24h e recusa a chamada quando estoura. Ver
+    // antes vira mensagem clara em vez de erro cru no meio do processo.
+    const quota = await getPublishingLimit(acc.externalId!, acc.accessToken!);
+    if (quota.used >= quota.total) {
+      results.push({ account: acc.handle, ok: false, error: `Limite de publicações do Instagram atingido (${quota.used}/${quota.total} em 24h).` });
+      continue;
+    }
+    const accountResults = await publishToInstagramAccount(acc.externalId!, acc.accessToken!, acc.handle, job);
+    results.push(...accountResults);
+    for (const r of accountResults) {
+      if (r.ok && r.mediaId) media.push({ socialAccountId: acc.id, mediaId: r.mediaId });
+    }
+  }
+  return { results, media };
+}
+
+/* ------------------------------------------------------------------ */
+/*  X                                                                  */
+/* ------------------------------------------------------------------ */
+
 /**
- * Publica um post nas contas Instagram do workspace (as do cliente do post,
- * ou todas as contas IG conectadas quando o post não tem cliente).
- * Atualiza o status do post para published/failed.
+ * Publica no X dentro do que o plano gratuito permite: texto (em thread quando
+ * passa de 280 caracteres) e até 4 mídias no primeiro post.
+ */
+async function publishToX(accounts: Account[], job: PublishJob): Promise<{ results: PublishResult[]; media: Media[] }> {
+  const results: PublishResult[] = [];
+  const media: Media[] = [];
+
+  if (accounts.length === 0) {
+    return { results: [{ account: "X", ok: false, error: "Nenhuma conta do X conectada. Conecte uma em Clientes." }], media };
+  }
+  if (!job.caption.trim() && job.mediaUrls.length === 0) {
+    return { results: [{ account: "X", ok: false, error: "Escreva um texto ou adicione mídia para publicar no X." }], media };
+  }
+
+  const used = await countXPostsThisMonth();
+  if (used >= X_MONTHLY_LIMIT) {
+    return {
+      results: [{ account: "X", ok: false, error: `Cota mensal do X atingida (${used}/${X_MONTHLY_LIMIT}). O plano gratuito limita publicações por mês.` }],
+      media,
+    };
+  }
+
+  for (const acc of accounts) {
+    try {
+      const published = await withFreshToken(acc, async (token) => {
+        // Mídia é opcional no X e o upload é a parte mais frágil do plano
+        // gratuito: se falhar, publicamos o texto em vez de perder o post.
+        const mediaIds: string[] = [];
+        for (const url of job.mediaUrls.slice(0, 4)) {
+          try {
+            mediaIds.push(await uploadMedia(token, url));
+          } catch {
+            break;
+          }
+        }
+
+        const parts = splitIntoThread(job.caption.trim() || " ", X_CHAR_LIMIT);
+        let replyTo: string | undefined;
+        let firstId = "";
+        for (const [i, text] of parts.entries()) {
+          const created = await createPost(token, {
+            text,
+            // As mídias vão só no primeiro post da thread.
+            mediaIds: i === 0 ? mediaIds : undefined,
+            replyTo,
+            username: acc.handle,
+          });
+          replyTo = created.id;
+          if (i === 0) firstId = created.id;
+        }
+        return { firstId, semMidia: job.mediaUrls.length > 0 && mediaIds.length === 0 };
+      });
+
+      results.push({
+        account: acc.handle,
+        ok: true,
+        mediaId: published.firstId,
+        error: published.semMidia
+          ? "Publicado sem a mídia: o envio do arquivo falhou (pode estar fora do plano gratuito)."
+          : undefined,
+      });
+      media.push({ socialAccountId: acc.id, mediaId: published.firstId });
+    } catch (e) {
+      results.push({ account: acc.handle, ok: false, error: e instanceof Error ? e.message : "Falha ao publicar no X." });
+    }
+  }
+  return { results, media };
+}
+
+/** Publicações deste mês que miraram o X — base do controle de cota. */
+async function countXPostsThisMonth(): Promise<number> {
+  const start = new Date();
+  start.setUTCDate(1);
+  start.setUTCHours(0, 0, 0, 0);
+  const rows = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(posts)
+    .where(and(eq(posts.status, "published"), gte(posts.publishedAt, start), sql`${posts.networks}::jsonb ? 'x'`));
+  return Number(rows[0]?.n ?? 0);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Orquestração                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Publica um post em todas as redes marcadas no composer.
+ *
+ * Cada rede é independente: falha numa não impede a outra, e o resultado
+ * detalha conta a conta. O post vira `published` se ao menos uma deu certo.
  */
 export async function publishPost(postId: string, workspaceId: string): Promise<{ status: string; results: PublishResult[] }> {
   const post = (
@@ -120,46 +264,16 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
     throw new Error(message);
   };
 
+  const networks = (post.networks ?? []).length > 0 ? post.networks : (["instagram"] as Platform[]);
   const mediaUrls = (post.mediaUrls ?? []).filter(Boolean);
-  if (mediaUrls.length === 0) await fail("O post precisa de ao menos uma mídia (URL pública) para publicar.");
-  // A Graph API do Instagram baixa a mídia da URL: precisa ser HTTP(S) pública.
-  // Data URIs (base64) ou blobs locais não funcionam.
+
+  // As duas integrações baixam a mídia a partir da URL: precisa ser pública.
+  // Data URI (base64) ou blob local não funcionam em nenhuma das duas.
   if (mediaUrls.some((u) => !/^https?:\/\//i.test(u))) {
     await fail("A mídia precisa ser uma URL pública (http/https). Faça upload da imagem antes de publicar.");
   }
-  if (post.format === "carousel" && mediaUrls.length < 2) {
-    await fail("Um carrossel precisa de pelo menos 2 mídias.");
-  }
-
-  const targets = await db
-    .select()
-    .from(socialAccounts)
-    .where(
-      and(
-        eq(socialAccounts.workspaceId, workspaceId),
-        eq(socialAccounts.platform, "instagram"),
-        eq(socialAccounts.connected, true),
-        isNull(socialAccounts.deletedAt),
-        // Conta vinculada ao cliente do post OU conta do workspace (sem cliente).
-        ...(post.clientId
-          ? [or(eq(socialAccounts.clientId, post.clientId), isNull(socialAccounts.clientId))]
-          : [])
-      )
-    );
-
-  const usable = targets.filter((a) => a.externalId && a.accessToken);
-  if (usable.length === 0) {
-    await fail("Nenhuma conta Instagram conectada para publicar. Conecte uma conta em Clientes.");
-  }
-
-  // A Meta limita publicações por 24h e recusa a chamada quando estoura. Ver
-  // antes vira mensagem clara em vez de erro cru da API no meio do processo.
-  const quotas = await Promise.all(
-    usable.map(async (acc) => ({ acc, quota: await getPublishingLimit(acc.externalId!, acc.accessToken!) }))
-  );
-  const blocked = quotas.filter(({ quota }) => quota.used >= quota.total);
-  if (blocked.length === usable.length) {
-    await fail(`Limite de publicações do Instagram atingido (${blocked[0].quota.used}/${blocked[0].quota.total} nas últimas 24h). Tente mais tarde.`);
+  if (!networks.some((n) => SUPPORTED.includes(n))) {
+    await fail(`Ainda não publicamos em ${networks.join(", ")}. Marque Instagram ou X no post.`);
   }
 
   const options = post.publishOptions ?? {};
@@ -179,24 +293,24 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
   };
 
   const results: PublishResult[] = [];
-  const externalMedia: { socialAccountId: string; mediaId: string }[] = [];
-  for (const { acc, quota } of quotas) {
-    if (quota.used >= quota.total) {
-      results.push({ account: acc.handle, ok: false, error: "Limite de publicações das últimas 24h atingido." });
+  const externalMedia: Media[] = [];
+
+  for (const network of networks) {
+    if (!SUPPORTED.includes(network)) {
+      results.push({ account: network, ok: false, error: "Integração ainda não disponível nesta rede." });
       continue;
     }
-    const accountResults = await publishToAccount(acc.externalId!, acc.accessToken!, acc.handle, job);
-    results.push(...accountResults);
-    for (const r of accountResults) {
-      if (r.ok && r.mediaId) externalMedia.push({ socialAccountId: acc.id, mediaId: r.mediaId });
-    }
+    const accounts = await accountsFor(workspaceId, network, post.clientId);
+    const out = network === "instagram" ? await publishToInstagram(accounts, job) : await publishToX(accounts, job);
+    results.push(...out.results);
+    externalMedia.push(...out.media);
   }
 
   const anyOk = results.some((r) => r.ok);
   const status = anyOk ? "published" : "failed";
   await db
     .update(posts)
-    // Guarda os media IDs do IG para buscar insights reais depois; zera as
+    // Guarda os IDs das publicações para buscar métricas depois; zera as
     // métricas (serão preenchidas na próxima sincronização) e marca como
     // pendente de sync para o refresh atualizar assim que possível.
     .set({
@@ -210,4 +324,22 @@ export async function publishPost(postId: string, workspaceId: string): Promise<
     .where(eq(posts.id, post.id));
 
   return { status, results };
+}
+
+/** Contas conectadas de uma rede: as do cliente do post, ou as do workspace. */
+async function accountsFor(workspaceId: string, platform: Platform, clientId: string | null): Promise<Account[]> {
+  const rows = await db
+    .select()
+    .from(socialAccounts)
+    .where(
+      and(
+        eq(socialAccounts.workspaceId, workspaceId),
+        eq(socialAccounts.platform, platform),
+        eq(socialAccounts.connected, true),
+        isNull(socialAccounts.deletedAt),
+        // Conta vinculada ao cliente do post OU conta do workspace (sem cliente).
+        ...(clientId ? [or(eq(socialAccounts.clientId, clientId), isNull(socialAccounts.clientId))] : [])
+      )
+    );
+  return rows.filter((a) => a.externalId && a.accessToken);
 }

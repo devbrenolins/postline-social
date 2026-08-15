@@ -247,23 +247,33 @@ function IntegrationsTab() {
           const isConn = connected.has(p);
           const acc = ws?.accounts.find((a) => a.platform === p);
           const isInstagram = p === "instagram";
+          // Redes com integração de verdade. O resto ainda é só visual.
+          const connectUrl = isInstagram ? "/api/meta/connect" : p === "x" ? "/api/x/connect" : null;
           return (
             <div key={p} className="flex items-center gap-3.5 rounded-xl border border-border px-4 py-3">
               <PlatformChip platform={p} size={16} />
               <div className="flex-1">
                 <p className="text-[13.5px] font-medium">{PLATFORM_META[p].name}</p>
-                <p className="text-[11.5px] text-muted">{isConn ? `@${acc?.handle} conectado` : isInstagram ? "Conecte via Instagram Business" : "Nenhuma conta conectada"}</p>
+                <p className="text-[11.5px] text-muted">
+                  {isConn
+                    ? `@${acc?.handle} conectado`
+                    : isInstagram
+                      ? "Conecte via Instagram Business"
+                      : p === "x"
+                        ? "Publicação e seguidores (plano gratuito da API)"
+                        : "Nenhuma conta conectada"}
+                </p>
               </div>
               {isConn ? <Badge tone="success">Conectado</Badge> : <Badge>Inativo</Badge>}
               <Button
                 variant={isConn ? "outline" : "soft"}
                 size="sm"
                 onClick={() => {
-                  if (isInstagram) { window.location.href = "/api/meta/connect"; return; }
+                  if (connectUrl) { window.location.href = connectUrl; return; }
                   toast.info(isConn ? "Gerenciamento via painel do provedor." : `Integração do ${PLATFORM_META[p].name} em breve.`);
                 }}
               >
-                {isConn ? (isInstagram ? "Adicionar conta" : "Gerenciar") : "Conectar"}
+                {isConn ? (connectUrl ? "Adicionar conta" : "Gerenciar") : "Conectar"}
               </Button>
             </div>
           );

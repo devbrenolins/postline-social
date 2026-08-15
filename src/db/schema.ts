@@ -159,6 +159,12 @@ export const socialAccounts = pgTable(
     pageId: varchar("page_id", { length: 64 }), // Facebook Page vinculada
     avatarUrl: text("avatar_url"),
     accessToken: text("access_token"), // long-lived token da conta/página
+    /**
+     * Token de renovação. O Instagram não usa (o long-lived se renova sozinho),
+     * mas o X entrega access token de ~2h e sem isto a conta se desconectaria
+     * sozinha a cada duas horas.
+     */
+    refreshToken: text("refresh_token"),
     tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
     scopes: jsonb("scopes").$type<string[]>().default([]),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),

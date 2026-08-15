@@ -188,58 +188,155 @@ arte em texto.
 
 ---
 
-## 4. Instagram oficial (múltiplas contas Business)
+## 4. Instagram oficial (Instagram API with Instagram Login)
 
-> Requer um app na Meta e, para uso público, **App Review** aprovando as
-> permissões. Em modo de desenvolvimento funciona com contas de teste que você
-> mesmo adiciona ao app.
+> O usuário conecta a conta **logando direto no Instagram** — sem Página do
+> Facebook. Todas as chamadas usam `graph.instagram.com`.
+>
+> Em modo de desenvolvimento funciona com contas que você adiciona como
+> testadoras no app. Para uso público, precisa de **App Review**.
 
-1. Crie um app em <https://developers.facebook.com/apps> (tipo "Business").
-2. Adicione os produtos **Instagram** e **Facebook Login for Business**.
-3. Em **App Settings → Basic**, copie:
-   - `App ID` → `META_APP_ID`
-   - `App Secret` → `META_APP_SECRET`
+1. Crie um app em <https://developers.facebook.com/apps>.
+2. Adicione o produto **Instagram** → **API setup with Instagram login**.
+3. Em **Instagram → Configuração da API**, copie:
+   - `Instagram App ID` → `INSTAGRAM_APP_ID`
+   - `Instagram App Secret` → `INSTAGRAM_APP_SECRET`
+
+   > Atenção: são diferentes do App ID/Secret do Facebook em *Configurações
+   > básicas*. O ID de Instagram **não existe** em `graph.facebook.com` — usar o
+   > par errado faz toda chamada falhar com "Cannot parse access token".
+
 4. Defina um `META_VERIFY_TOKEN` (qualquer string secreta sua) no `.env.local`.
-5. Em **Facebook Login → Settings → Valid OAuth Redirect URIs**, adicione:
+5. Em **Instagram → Configuração da API → URIs de redirecionamento OAuth**:
    ```
    https://SEU_DOMINIO/api/meta/connect/callback
    http://localhost:3000/api/meta/connect/callback
    ```
-6. Permissões a solicitar no App Review (Advanced Access):
-   `instagram_basic`, `instagram_manage_insights`, `instagram_manage_messages`,
-   `instagram_content_publish`, `pages_show_list`, `pages_read_engagement`,
-   `business_management`.
-7. **Webhook** (para directs automáticos e inbox): em **Instagram → Webhooks**,
-   assine o objeto e aponte para:
+6. Permissões pedidas no OAuth (constante `META_SCOPES` em `src/lib/instagram.ts`):
+   `instagram_business_basic`, `instagram_business_manage_insights`,
+   `instagram_business_manage_messages`, `instagram_business_manage_comments`,
+   `instagram_business_content_publish`.
+
+   São essas — e só essas — que devem ir para o **App Review** pedindo Advanced
+   Access. As antigas (`instagram_basic`, `pages_show_list`, …) pertencem ao
+   caminho via Facebook Login, que este app não usa.
+
+7. **Webhook** (inbox e automações de direct): em **Instagram → Webhooks**,
+   aponte para:
    ```
    Callback URL:  https://SEU_DOMINIO/api/meta/webhook
    Verify Token:  <o mesmo META_VERIFY_TOKEN>
    ```
+   Assine os campos `comments` e `messages`.
+
+   > **O app precisa estar publicado (Live) para receber webhook.** Em modo de
+   > desenvolvimento a Meta não entrega evento nenhum, mesmo com a URL correta e
+   > a conta inscrita.
+
+8. Na conta Instagram, ligue **Configurações → Privacidade das mensagens →
+   Ferramentas conectadas → Permitir acesso às mensagens**. Sem isso a API
+   devolve conversas vazias, sem erro.
+
+### Níveis de acesso e CNPJ
+
+- **Standard Access** (padrão): o app só enxerga dados de contas com papel nele
+  (Instagram Tester, e a conta precisa aceitar o convite). Serve para desenvolver
+  e testar. Não pede documento.
+- **Advanced Access**: necessário para clientes conectarem as contas deles. Exige
+  App Review e, na prática, **verificação do negócio** — no Brasil, CNPJ (MEI
+  serve). Confirme os documentos exigidos em **Configurações do negócio →
+  Segurança → Verificação do negócio**, que a regra muda.
 
 ### Como conectar contas no app
-- A conta Instagram precisa ser **Business/Creator** e estar **vinculada a uma
-  Página do Facebook**.
-- No app: **Clientes → Conectar Instagram**. Você faz login na Meta, escolhe as
-  Páginas e todas as contas IG vinculadas são importadas (pode repetir para vários
-  perfis / várias contas).
+- A conta precisa ser **Business ou Creator** (perfil pessoal não funciona).
+- No app: **Clientes → Conectar Instagram** (ou em **Configurações → Contas**).
+  O login acontece em instagram.com e traz a conta daquele login — repita para
+  conectar outros perfis.
+- O callback guarda **dois** identificadores da conta: `external_id` (ID da conta
+  profissional) e `app_scoped_id` (o "ID do usuário" que aparece no app do
+  Instagram). São números diferentes e a Meta usa um ou outro conforme o evento;
+  o webhook casa por qualquer um dos dois.
 
 ### O que passa a funcionar
-- **Métricas**: botão de sincronizar (`POST /api/accounts` action `sync`) puxa
-  seguidores/reach e grava em `analytics_daily`.
-- **Directs**: `POST /api/accounts` action `dm`, e respostas automáticas por
-  palavra-chave via webhook (aba IA & Automação).
-- **Publicar**: `POST /api/posts/{id}/publish` publica nas contas IG do cliente do
-  post (imagem ou reel). As mídias devem ser **URLs públicas**.
-- **Agendar**: crie o post com status `scheduled` e `scheduledAt`. O worker publica
-  na hora (veja Cron).
+
+- **Métricas** (`GET /api/analytics`, que sincroniza sozinho ao abrir Análises):
+  alcance, visualizações, engajamento, visitas ao perfil e cliques no site por
+  dia em `analytics_daily`; recortes de seguidor vs. não seguidor e por tipo de
+  mídia (incluindo anúncios) em `analytics_breakdowns`; demografia da audiência.
+  Faz backfill de 30 dias com orçamento de chamadas — se não couber numa
+  requisição, a próxima abertura continua de onde parou.
+- **Publicar** (`POST /api/posts/{id}/publish`): respeita o formato do composer —
+  feed, **carrossel** (2 a 10 mídias), **stories** (uma publicação por mídia) e
+  reels. Aceita colaboradores, local, texto alternativo e capa do reel. As mídias
+  precisam ser **URLs públicas** (http/https); data URI não funciona.
+- **Agendar**: crie o post com status `scheduled` e `scheduledAt` (veja Cron).
+- **Inbox**: comentários e directs chegam por webhook; o botão *Buscar no
+  Instagram* importa o histórico anterior à conexão. Responder envia de verdade
+  (resposta pública no comentário, direct na mensagem), e dá para ocultar ou
+  apagar comentário.
+- **Feed do Instagram**: publicações reais com alcance, views, retenção de reels,
+  stories no ar, marcações e cota de publicação das últimas 24h.
+- **Directs avulsos e automações**: `POST /api/accounts` com `action: "dm"`, e
+  respostas por palavra-chave via webhook (aba IA & Automação).
+- **Sincronizar na mão**: `POST /api/accounts` com `action: "sync"` força a
+  atualização das métricas ignorando o TTL.
+
+---
+
+## 4b. X (Twitter) — só o que é gratuito
+
+> O plano gratuito da API do X publica, mas não lê métrica. A integração aqui
+> cobre exatamente isso — nada que exija plano pago foi implementado.
+
+**O que funciona**
+- Conectar a conta por OAuth 2.0 (PKCE)
+- Handle, nome, avatar e **contagem de seguidores**
+- Publicar texto, com até 4 mídias
+- **Thread automática**: texto acima de 280 caracteres é quebrado e publicado
+  encadeado, com marcador `(1/3)`
+
+**O que não existe e por quê**
+- Métricas por post, busca, timeline e menções: exigem plano pago (Basic ~US$200/mês)
+- Por isso o X não aparece nos gráficos de Análises — só na contagem de seguidores
+
+### Configuração
+
+1. Crie um projeto e um app em <https://developer.x.com>.
+2. Em **User authentication settings**:
+   - Tipo: **Web App, Automated App or Bot** (client confidencial)
+   - Permissões: **Read and write**
+   - Callback URI: `https://SEU_DOMINIO/api/x/connect/callback`
+   - Website URL: o domínio do app
+3. Copie **OAuth 2.0 Client ID e Client Secret** para `X_CLIENT_ID` e
+   `X_CLIENT_SECRET`. (Não são a API Key/Secret do OAuth 1.0a.)
+4. Escopos pedidos: `tweet.read`, `tweet.write`, `users.read`, `media.write`,
+   `offline.access`.
+
+   > `offline.access` é obrigatório: o access token do X dura ~2h. Sem o refresh
+   > token a conta se desconectaria sozinha entre um agendamento e a publicação.
+
+### Cota mensal
+
+O limite gratuito é por **app**, somando todos os workspaces, e a API não expõe o
+consumo. O Postline conta as publicações do mês e recusa antes de estourar —
+ajuste em `X_MONTHLY_POST_LIMIT` (padrão 450). A contagem é conservadora: uma
+thread gasta uma unidade por tweet, mas é contada como um post.
+
+### Envio de mídia
+
+É a parte mais frágil do plano gratuito. Se o upload falhar, o post sai **só com
+o texto** e o resultado avisa — melhor que perder a publicação inteira.
 
 ---
 
 ## 5. Publicação agendada (Cron)
 
 1. Defina `CRON_SECRET` (uma string secreta) no `.env.local` e nas env vars da Vercel.
-2. O `vercel.json` já registra o cron `*/5 * * * *` chamando `/api/cron/publish`.
-   A Vercel injeta `Authorization: Bearer $CRON_SECRET` automaticamente.
+2. Registre o cron na Vercel apontando para `/api/cron/publish` — em
+   **Settings → Cron Jobs** ou adicionando `crons` ao `vercel.json`. O
+   `vercel.json` do repositório **não** define nenhum cron hoje, então sem esse
+   passo os posts agendados não saem sozinhos. A Vercel injeta o
+   `Authorization: Bearer $CRON_SECRET` automaticamente.
 3. Fora da Vercel, agende um `curl` você mesmo:
    ```bash
    curl -X POST https://SEU_DOMINIO/api/cron/publish \
@@ -254,6 +351,9 @@ arte em texto.
 2. Cole **todas** as variáveis do `.env.local` em **Settings → Environment Variables**.
 3. Defina `NEXT_PUBLIC_APP_URL` com o domínio final (ex.: `https://postline.app`).
 4. Atualize os redirect URIs do Google (Supabase) e da Meta com o domínio final.
+5. Confira que `INSTAGRAM_APP_ID` e `INSTAGRAM_APP_SECRET` estão definidos — as
+   `META_APP_ID`/`META_APP_SECRET` são só fallback legado e não servem para o
+   fluxo de Instagram Login.
 
 ---
 
