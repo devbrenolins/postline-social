@@ -379,10 +379,31 @@ que perder a publicação inteira.
    > exceção para `localhost`: para testar local, use um túnel HTTPS.
 
 4. Escopos pedidos: `user.info.basic`, `user.info.profile`, `user.info.stats`,
-   `video.publish`.
+   `video.list`, `video.upload`, `video.publish`.
 
-   > `video.publish` publica no perfil; `video.upload` só manda para o rascunho
-   > do app e não serve para agendamento.
+   > `video.publish` publica no perfil; `video.upload` manda para a caixa de
+   > entrada do TikTok, onde o usuário conclui (e a legenda **não** vai junto).
+   > O app detecta pelo escopo concedido qual caminho usar.
+
+   > Pedir um escopo que o app **não tem aprovado** faz o TikTok recusar a
+   > autorização inteira — não é ignorado. E o token guardado carrega os
+   > escopos do momento da autorização: ao acrescentar um escopo novo, as
+   > contas já conectadas precisam **reconectar** para liberá-lo.
+
+5. A autorização usa `disable_auto_auth=1`, que força a tela de permissões
+   mesmo para quem já autorizou antes. Sem isso a reconexão volta instantânea,
+   sem mostrar nada — e o App Review exige essa tela no vídeo.
+
+### Sandbox
+
+O app começa em sandbox, e ele só autoriza **contas cadastradas como target
+users** (Sandbox settings → Target users → Add account; a conta precisa logar e
+aceitar os Termos de Desenvolvedor, limite de 10). Outra conta recebe o erro
+`non_sandbox_target`.
+
+O sandbox também **não publica vídeo público** — soma-se à auditoria, é a
+segunda barreira na mesma direção. Serve para validar o fluxo inteiro e gravar
+o vídeo do App Review.
 
 5. Verifique o domínio das mídias em **URL properties**.
 

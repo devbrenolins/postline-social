@@ -80,6 +80,10 @@ export function tiktokOAuthUrl(state: string) {
     scope: TIKTOK_SCOPES.join(","),
     redirect_uri: tiktokRedirectUri(),
     state,
+    // "When set to 1, always displays the authorization page." Sem isto, quem
+    // já autorizou antes volta direto, sem ver nada — a reconexão parece que
+    // não aconteceu, e o App Review exige a tela de permissões no vídeo.
+    disable_auto_auth: "1",
   });
   return `${AUTHORIZE}?${params}`;
 }
