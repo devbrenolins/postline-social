@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn, Button, Badge, Modal, EmptyState, inputCls, labelCls, Dropdown, fmt, timeAgo } from "@/components/ui";
 import type { MediaItem, Folder } from "@/lib/types";
+import { uploadMedia } from "@/lib/upload-client";
 import { toast } from "sonner";
 
 type ViewKey = "all" | "favorites" | "trash" | `folder:${string}`;
@@ -74,12 +75,12 @@ export default function MediaPage() {
     setUploading(true);
     let ok = 0;
     for (const file of Array.from(files).slice(0, 8)) {
-      const fd = new FormData();
-      fd.append("file", file);
-      if (view.startsWith("folder:")) fd.append("folderId", view.slice(7));
-      const res = await fetch("/api/media/upload", { method: "POST", body: fd });
-      if (res.ok) ok++;
-      else { const err = await res.json().catch(() => ({})); toast.error(`Falha ao enviar ${file.name}${err.error ? `: ${err.error}` : ""}`); }
+      try {
+        await uploadMedia(file, view.startsWith("folder:") ? view.slice(7) : null);
+        ok++;
+      } catch (e) {
+        toast.error(`Falha ao enviar ${file.name}: ${e instanceof Error ? e.message : "erro desconhecido"}`);
+      }
     }
     if (ok) { toast.success(`${ok} arquivo(s) enviado(s).`); load(true); }
     setUploading(false);

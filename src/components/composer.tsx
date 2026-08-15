@@ -16,6 +16,7 @@ import {
   AutomationFields, EMPTY_AUTOMATION, draftFromAutomation, isDraftComplete, saveAutomationDraft,
   type Automation, type AutomationDraft,
 } from "@/components/post-automation";
+import { uploadMedia } from "@/lib/upload-client";
 import { toast } from "sonner";
 
 /* --------------------------------- Context --------------------------------- */
@@ -1043,12 +1044,10 @@ function MediaPicker({ selected, onToggle, onClose }: { selected: string[]; onTo
     setUploading(true);
     try {
       for (const file of Array.from(files).slice(0, 6)) {
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/media/upload", { method: "POST", body: fd });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          toast.error(`Falha ao enviar ${file.name}${err.error ? `: ${err.error}` : ""}`);
+        try {
+          await uploadMedia(file);
+        } catch (e) {
+          toast.error(`Falha ao enviar ${file.name}: ${e instanceof Error ? e.message : "erro desconhecido"}`);
         }
       }
       await load();

@@ -2,7 +2,8 @@ import { db } from "@/db";
 import { media } from "@/db/schema";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-export const MEDIA_BUCKET = "media";
+export { MEDIA_BUCKET } from "@/lib/media-shared";
+import { MEDIA_BUCKET } from "@/lib/media-shared";
 
 /**
  * Normaliza qualquer imagem para JPEG publicável no Instagram: achata a
@@ -57,6 +58,38 @@ export async function saveMedia(opts: {
       url,
       type: opts.type,
       sizeKb: Math.max(1, Math.floor(opts.buffer.length / 1024)),
+    })
+    .returning();
+
+  return { media: row, url };
+}
+
+/**
+ * Registra na biblioteca um arquivo que já foi parar no Storage — caminho usado
+ * pelo upload direto do navegador (ver `src/lib/upload-client.ts`), em que os
+ * bytes nunca passam pela função serverless.
+ */
+export async function registerMedia(opts: {
+  workspaceId: string;
+  path: string;
+  name: string;
+  type: "image" | "video";
+  sizeKb: number;
+  folderId?: string | null;
+}) {
+  const supabase = createSupabaseAdminClient();
+  const { data: pub } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(opts.path);
+  const url = pub.publicUrl;
+
+  const [row] = await db
+    .insert(media)
+    .values({
+      workspaceId: opts.workspaceId,
+      folderId: opts.folderId ?? null,
+      name: opts.name.slice(0, 200),
+      url,
+      type: opts.type,
+      sizeKb: Math.max(1, Math.floor(opts.sizeKb)),
     })
     .returning();
 
