@@ -1,5 +1,5 @@
 /* Postline PWA service worker — cache leve de assets estáticos + navegação offline. */
-const VERSION = "postline-v2";
+const VERSION = "postline-v3";
 const STATIC_CACHE = `${VERSION}-static`;
 const PRECACHE = [
   "/icons/icon-192.png",
@@ -16,9 +16,15 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    Promise.all([
+      // Navigation Preload: a requisição de rede da página começa em paralelo
+      // com a inicialização do service worker, em vez de esperar ele acordar —
+      // no iPhone o SW dorme entre usos e esse "acordar" entrava na conta.
+      self.registration.navigationPreload ? self.registration.navigationPreload.enable().catch(() => {}) : null,
+      caches.keys().then((keys) =>
+        Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k)))
+      ),
+    ]).then(() => self.clients.claim())
   );
 });
 
@@ -84,7 +90,8 @@ self.addEventListener("fetch", (event) => {
   // Navegações: network-first com fallback ao cache (offline).
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      Promise.resolve(event.preloadResponse)
+        .then((pre) => pre || fetch(request))
         .then((res) => {
           const copy = res.clone();
           caches.open(STATIC_CACHE).then((c) => c.put(request, copy)).catch(() => {});

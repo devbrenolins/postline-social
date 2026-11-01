@@ -4,10 +4,12 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, Mail, Lock, User, Building2, ArrowRight, TrendingUp, CheckCircle2, Heart, MessageCircle } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, User, Building2, ArrowRight } from "lucide-react";
 import { Logo, Button, InlineError, inputCls, labelCls, cn } from "@/components/ui";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { PhotoShuffle } from "@/components/photo-shuffle";
+import { LOGIN_PHOTO_GROUPS } from "@/lib/login-photos";
 
 type Mode = "login" | "register" | "forgot";
 
@@ -25,14 +27,6 @@ function translateAuthError(err: unknown): string {
   return err instanceof Error && err.message ? err.message : "Algo deu errado. Tente novamente.";
 }
 
-const PHOTOS = [
-  "https://images.pexels.com/photos/29765795/pexels-photo-29765795.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-  "https://images.pexels.com/photos/692101/pexels-photo-692101.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-  "https://images.pexels.com/photos/28309428/pexels-photo-28309428.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-  "https://images.pexels.com/photos/18281417/pexels-photo-18281417.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-  "https://images.pexels.com/photos/27082720/pexels-photo-27082720.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-  "https://images.pexels.com/photos/19793978/pexels-photo-19793978.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -256,44 +250,10 @@ export default function LoginPage() {
       {/* ------------------------------------------------ Visual side */}
       <div className="relative hidden flex-1 overflow-hidden lg:block" style={{ background: "linear-gradient(160deg, #241a20 0%, #331d27 45%, #1c1a1e 100%)" }}>
         <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.35) 1px, transparent 1px)", backgroundSize: "26px 26px" }} />
-        <div className="relative flex h-full flex-col justify-center px-14 xl:px-20">
-          <div className="grid max-w-130 grid-cols-3 gap-4">
-            {PHOTOS.map((src, i) => (
-              <motion.div
-                key={src}
-                initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.08 * i, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                className={cn("overflow-hidden rounded-2xl", i % 3 === 1 && "translate-y-6")}
-                style={{ aspectRatio: "3/4" }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />
-              </motion.div>
-            ))}
-          </div>
+        <div className="relative flex h-full flex-col justify-center overflow-hidden px-10 py-8 xl:px-12">
+          <PhotoShuffle groups={LOGIN_PHOTO_GROUPS} />
 
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="absolute left-14 top-[16%] xl:left-20">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/10 p-3.5 pr-5 backdrop-blur-md">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-300"><TrendingUp size={17} /></span>
-              <div>
-                <p className="text-[13px] font-semibold leading-none text-white">+240% engajamento</p>
-                <p className="mt-1 text-[11.5px] text-white/60">últimos 30 dias</p>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65 }} className="absolute bottom-[14%] right-14 xl:right-20">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/10 p-3.5 pr-5 backdrop-blur-md">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-400/25 text-rose-200"><Heart size={16} /></span>
-              <div>
-                <p className="text-[13px] font-semibold leading-none text-white">4,2 mil curtidas</p>
-                <p className="mt-1 flex items-center gap-1 text-[11.5px] text-white/60"><CheckCircle2 size={11} className="text-emerald-300" /> Publicado agora</p>
-              </div>
-              <span className="ml-1 flex h-9 w-9 items-center justify-center rounded-xl bg-sky-400/20 text-sky-200"><MessageCircle size={15} /></span>
-            </div>
-          </motion.div>
-
-          <div className="mt-14 max-w-105">
+          <div className="mx-auto mt-12 w-full max-w-[min(100%,80vh,900px)] pr-4">
             <p className="text-[22px] font-semibold leading-snug tracking-tight text-white">
               “A Postline transformou a rotina da agência. Publicamos 3x mais, com metade do esforço.”
             </p>

@@ -300,14 +300,14 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
 
   return (
     <header data-topbar className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md pt-[env(safe-area-inset-top)]">
-      <div className="mx-auto flex h-14 max-w-350 items-center gap-3 px-4 sm:px-6 lg:px-8">
-        <button onClick={onMenu} className="rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground lg:hidden" aria-label="Abrir menu">
+      <div className="mx-auto flex h-14 max-w-350 items-center gap-2 px-3 min-[380px]:gap-3 min-[380px]:px-4 sm:px-6 lg:px-8">
+        <button onClick={onMenu} className="shrink-0 rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground lg:hidden" aria-label="Abrir menu">
           <Menu size={18} />
         </button>
 
-        <h1 className="text-[15px] font-semibold tracking-tight">{TITLES[pathname] ?? "Postline"}</h1>
+        <h1 className="min-w-0 truncate text-[15px] font-semibold tracking-tight">{TITLES[pathname] ?? "Postline"}</h1>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 min-[380px]:gap-1.5">
           <button
             onClick={() => setPalette(true)}
             className="hidden items-center gap-2 rounded-xl border border-border bg-surface px-3 py-1.5 text-[12.5px] text-muted transition hover:border-border-strong hover:text-foreground sm:flex"
@@ -337,7 +337,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
 
           <Link
             href="/studio#creditos"
-            className="flex items-center gap-1.5 rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground sm:px-2.5"
+            className="hidden items-center gap-1.5 rounded-lg p-2 text-muted transition hover:bg-surface-2 hover:text-foreground min-[380px]:flex sm:px-2.5"
             aria-label="Ver créditos Postline"
             title="Créditos Postline"
           >

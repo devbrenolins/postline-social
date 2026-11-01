@@ -13,16 +13,16 @@ export function SplashScreen() {
   const [gone, setGone] = useState(false);
 
   useEffect(() => {
-    // Garante um tempo mínimo de exibição (pra animação aparecer) e some quando
-    // a página termina de carregar — o que vier por último.
+    // O HTML já veio com o splash pintado; ao hidratar a interface está pronta,
+    // então some na hora (só um respiro de ~1 frame para não piscar). Antes havia
+    // um mínimo fixo de 650 ms que atrasava TODA abertura, mesmo com o app pronto.
     let fadeTimer: ReturnType<typeof setTimeout>;
-    const start = () => {
+    const raf = requestAnimationFrame(() => {
       setFade(true);
-      fadeTimer = setTimeout(() => setGone(true), 480);
-    };
-    const minTimer = setTimeout(start, 650);
+      fadeTimer = setTimeout(() => setGone(true), 300);
+    });
     return () => {
-      clearTimeout(minTimer);
+      cancelAnimationFrame(raf);
       clearTimeout(fadeTimer);
     };
   }, []);

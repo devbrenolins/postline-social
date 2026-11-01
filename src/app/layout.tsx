@@ -3,6 +3,7 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 import { PwaRegister } from "@/components/pwa-register";
 import { SplashScreen } from "@/components/splash-screen";
+import { SPLASH_STARTUP_IMAGES } from "@/lib/splash-images";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
@@ -15,6 +16,7 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Postline",
+    startupImage: SPLASH_STARTUP_IMAGES,
   },
   icons: {
     icon: [

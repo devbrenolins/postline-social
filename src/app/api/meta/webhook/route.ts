@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { directAutomations, socialAccounts, inboxItems, notifications, posts } from "@/db/schema";
+import { directAutomations, socialAccounts, inboxItems, posts } from "@/db/schema";
 import { verifyMetaSignature } from "@/lib/meta";
+import { notifyWorkspace } from "@/lib/push";
 import { sendCommentPrivateReply, sendDirectMessage } from "@/lib/instagram";
 
 /**
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ error: "Verificação inválida." }, { status: 403 });
 }
 
-type Messaging = { sender?: { id?: string }; message?: { text?: string; is_echo?: boolean } };
+type Messaging = { sender?: { id?: string }; message?: { mid?: string; text?: string; is_echo?: boolean } };
 type CommentValue = {
   id?: string;
   text?: string;
@@ -124,11 +125,15 @@ export async function POST(req: NextRequest) {
           status: "unread",
         })
         .onConflictDoNothing({ target: [inboxItems.workspaceId, inboxItems.externalId] });
-      await db.insert(notifications).values({
+      // Registro + push no aparelho de quem está no workspace. A dedupeKey impede
+      // aviso em dobro quando a Meta reentrega o mesmo evento.
+      await notifyWorkspace({
         workspaceId: account.workspaceId,
         title: `Novo comentário de @${username}`,
         body: commentText.slice(0, 180),
         kind: "info",
+        url: "/inbox",
+        dedupeKey: c.id ? `comentario:${account.workspaceId}:${c.id}` : undefined,
       });
 
       // ---- Automação "comente X, receba no direct" ----
@@ -182,11 +187,13 @@ export async function POST(req: NextRequest) {
           target: [inboxItems.workspaceId, inboxItems.externalId],
           set: { text: event.message?.text ?? "", status: "unread", updatedAt: new Date() },
         });
-      await db.insert(notifications).values({
+      await notifyWorkspace({
         workspaceId: account.workspaceId,
         title: "Nova mensagem no Instagram",
         body: (event.message?.text ?? "").slice(0, 180),
         kind: "info",
+        url: "/inbox",
+        dedupeKey: event.message?.mid ? `mensagem:${account.workspaceId}:${event.message.mid}` : undefined,
       });
 
       // Regras presas a uma publicação só valem no fluxo de comentário — num

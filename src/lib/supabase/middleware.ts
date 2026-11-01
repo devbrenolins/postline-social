@@ -35,6 +35,12 @@ export async function updateSession(request: NextRequest) {
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) return response;
 
+  const path = request.nextUrl.pathname;
+
+  // Sem cookie de sessão do Supabase não há usuário: dispensa a ida à rede.
+  // Visitante deslogado (login, páginas legais, webhooks, landing) passa direto.
+  const hasSessionCookie = request.cookies.getAll().some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
+
   const supabase = createServerClient(url, anon, {
     cookies: {
       getAll() {
@@ -48,11 +54,16 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // `getClaims` valida o JWT localmente (chaves assimétricas do projeto) e só
+  // vai à rede quando precisa renovar o token — ao contrário do `getUser`, que
+  // faz uma chamada ao Supabase em TODA navegação. Com chave simétrica legada
+  // ele cai sozinho no comportamento antigo.
+  let user: { id: string } | null = null;
+  if (hasSessionCookie) {
+    const { data } = await supabase.auth.getClaims();
+    if (data?.claims?.sub) user = { id: data.claims.sub };
+  }
 
-  const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p + "/") || path.startsWith(p));
   const isStatic = path.startsWith("/_next") || path === "/" || /\.[\w]+$/.test(path);
 

@@ -43,7 +43,7 @@ export default function ClientsPage() {
           <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar clientes…" className={cn(inputCls, "pl-10")} aria-label="Buscar clientes" />
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 lg:ml-auto lg:w-auto">
           <Button variant="outline" onClick={() => (window.location.href = "/api/meta/connect")}>
             <Link2 size={15} /> Conectar Instagram
           </Button>

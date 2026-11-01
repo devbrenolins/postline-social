@@ -44,6 +44,44 @@ function slugify(input: string) {
 /*  Provisionamento: cria/vincula o perfil local ao usuário Supabase   */
 /* ------------------------------------------------------------------ */
 
+/** Anexa convites pendentes endereçados a este e-mail. */
+async function attachPendingInvites(profileId: string, email: string) {
+  if (!email) return;
+  await db
+    .update(workspaceMembers)
+    .set({ userId: profileId, status: "active", updatedAt: new Date() })
+    .where(and(eq(workspaceMembers.invitedEmail, email), isNull(workspaceMembers.userId), isNull(workspaceMembers.deletedAt)));
+}
+
+/** Garante ao menos um workspace para o perfil (cria um de teste se não houver). */
+async function ensureWorkspace(
+  profile: { id: string; avatarColor: string },
+  name: string,
+  workspaceName?: string
+) {
+  const membership = (
+    await db
+      .select({ id: workspaceMembers.id })
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.userId, profile.id), isNull(workspaceMembers.deletedAt)))
+      .limit(1)
+  )[0];
+  if (membership) return;
+  const wsName = workspaceName?.trim() || `Workspace de ${name.split(" ")[0]}`;
+  const slug = `${slugify(wsName) || "workspace"}-${profile.id.slice(0, 6)}`;
+  const [ws] = await db
+    .insert(workspaces)
+    .values({ name: wsName, slug, color: profile.avatarColor, ownerId: profile.id, plan: "trial", trialEndsAt: trialDeadline() })
+    .returning();
+  await db.insert(workspaceMembers).values({
+    workspaceId: ws.id,
+    userId: profile.id,
+    role: "admin",
+    status: "active",
+    avatarColor: profile.avatarColor,
+  });
+}
+
 async function provisionProfile(authUser: SupabaseUser) {
   const email = (authUser.email ?? "").toLowerCase().trim();
   const meta = (authUser.user_metadata ?? {}) as Record<string, string | undefined>;
@@ -55,6 +93,11 @@ async function provisionProfile(authUser: SupabaseUser) {
 
   // 1) Já existe perfil vinculado a este authId?
   let profile = (await db.select().from(users).where(eq(users.authId, authUser.id)).limit(1))[0];
+
+  // Caminho rápido (quase toda requisição): perfil existente não precisa de mais
+  // nada aqui. Convites e workspace são tratados em getSessionUser, em paralelo
+  // com a leitura das associações.
+  if (profile) return profile;
 
   if (!profile) {
     // 2) Existe conta legada com o mesmo e-mail (sem authId)? Vincula.
@@ -79,37 +122,8 @@ async function provisionProfile(authUser: SupabaseUser) {
   }
   if (!profile) throw new Error("Não foi possível provisionar o perfil.");
 
-  // 4) Anexa convites pendentes endereçados a este e-mail.
-  if (email) {
-    await db
-      .update(workspaceMembers)
-      .set({ userId: profile.id, status: "active", updatedAt: new Date() })
-      .where(and(eq(workspaceMembers.invitedEmail, email), isNull(workspaceMembers.userId), isNull(workspaceMembers.deletedAt)));
-  }
-
-  // 5) Garante ao menos um workspace.
-  const membership = (
-    await db
-      .select({ id: workspaceMembers.id })
-      .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.userId, profile.id), isNull(workspaceMembers.deletedAt)))
-      .limit(1)
-  )[0];
-  if (!membership) {
-    const wsName = meta.workspace_name?.trim() || `Workspace de ${name.split(" ")[0]}`;
-    const slug = `${slugify(wsName) || "workspace"}-${profile.id.slice(0, 6)}`;
-    const [ws] = await db
-      .insert(workspaces)
-      .values({ name: wsName, slug, color: profile.avatarColor, ownerId: profile.id, plan: "trial", trialEndsAt: trialDeadline() })
-      .returning();
-    await db.insert(workspaceMembers).values({
-      workspaceId: ws.id,
-      userId: profile.id,
-      role: "admin",
-      status: "active",
-      avatarColor: profile.avatarColor,
-    });
-  }
+  await attachPendingInvites(profile.id, email);
+  await ensureWorkspace(profile, name, meta.workspace_name);
 
   return profile;
 }
@@ -130,29 +144,52 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   let authUser: SupabaseUser | null = null;
   try {
     const supabase = await createSupabaseServerClient();
-    const { data } = await supabase.auth.getUser();
-    authUser = data.user;
+    // `getClaims` valida o JWT localmente (sem ida ao Supabase) quando o projeto
+    // usa chaves assimétricas; senão cai sozinho em `getUser`. O middleware já
+    // renovou o token desta requisição.
+    const { data } = await supabase.auth.getClaims();
+    const claims = data?.claims;
+    if (claims?.sub) {
+      authUser = {
+        id: claims.sub,
+        email: typeof claims.email === "string" ? claims.email : undefined,
+        user_metadata: (claims.user_metadata as Record<string, unknown>) ?? {},
+      } as SupabaseUser;
+    }
   } catch {
     return null; // Supabase ainda não configurado.
   }
   if (!authUser) return null;
 
   const profile = await provisionProfile(authUser);
+  const email = (authUser.email ?? "").toLowerCase().trim();
 
   // `createdAt` fixa a ordem: sem ORDER BY o Postgres pode devolver as linhas em
   // ordem diferente entre requisições, e o fallback abaixo cairia num workspace
   // distinto a cada acesso.
-  const memberships = await db
-    .select({ workspaceId: workspaceMembers.workspaceId })
-    .from(workspaceMembers)
-    .where(
-      and(
-        eq(workspaceMembers.userId, profile.id),
-        eq(workspaceMembers.status, "active"),
-        isNull(workspaceMembers.deletedAt)
+  const loadMemberships = () =>
+    db
+      .select({ workspaceId: workspaceMembers.workspaceId })
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.userId, profile.id),
+          eq(workspaceMembers.status, "active"),
+          isNull(workspaceMembers.deletedAt)
+        )
       )
-    )
-    .orderBy(asc(workspaceMembers.createdAt), asc(workspaceMembers.id));
+      .orderBy(asc(workspaceMembers.createdAt), asc(workspaceMembers.id));
+
+  // Convites e associações em paralelo: no caso comum (nada novo) custa uma ida
+  // ao banco em vez de duas. Um convite recém-anexado aparece já na próxima
+  // navegação; se a pessoa não tem workspace nenhum, resolvemos em série abaixo.
+  const [, firstRead] = await Promise.all([attachPendingInvites(profile.id, email).catch(() => {}), loadMemberships()]);
+  let memberships = firstRead;
+  if (memberships.length === 0) {
+    await attachPendingInvites(profile.id, email);
+    await ensureWorkspace(profile, profile.name);
+    memberships = await loadMemberships();
+  }
 
   const belongs = (id: string | undefined | null) => Boolean(id && memberships.some((m) => m.workspaceId === id));
 

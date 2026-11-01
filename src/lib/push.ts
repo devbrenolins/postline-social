@@ -46,7 +46,7 @@ function ensureVapid(): boolean {
     // `setVapidDetails` lança com chave malformada (colada com espaço, cortada,
     // subject sem mailto:). Sem este catch o erro sobe pela rota e vira 500 —
     // o usuário veria "não foi possível ativar" mesmo com a inscrição salva.
-    webpush.setVapidDetails(process.env.VAPID_SUBJECT?.trim() || "mailto:contato@postline.social", publicKey, privateKey);
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT?.trim() || `mailto:${process.env.NEXT_PUBLIC_CONTACT_EMAIL || "contato@infusesoftware.com"}`, publicKey, privateKey);
     configured = true;
   } catch (e) {
     console.error("[push] chaves VAPID inválidas:", e instanceof Error ? e.message : e);
