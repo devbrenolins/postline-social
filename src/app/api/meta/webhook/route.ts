@@ -47,7 +47,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 });
   }
 
-  const payload = JSON.parse(raw) as { entry?: Entry[] };
+  let payload: { entry?: Entry[] };
+  try {
+    payload = JSON.parse(raw) as { entry?: Entry[] };
+  } catch {
+    return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
+  }
 
   for (const entry of payload.entry ?? []) {
     const igId = entry.id;

@@ -446,15 +446,23 @@ para o conjunto básico e a tela omite os números em vez de mostrar zeros.
 
 ---
 
-## 5. Publicação agendada (Cron)
+## 5. Publicação agendada e rotinas (Cron)
 
-1. Defina `CRON_SECRET` (uma string secreta) no `.env.local` e nas env vars da Vercel.
-2. Registre o cron na Vercel apontando para `/api/cron/publish` — em
-   **Settings → Cron Jobs** ou adicionando `crons` ao `vercel.json`. O
-   `vercel.json` do repositório **não** define nenhum cron hoje, então sem esse
-   passo os posts agendados não saem sozinhos. A Vercel injeta o
-   `Authorization: Bearer $CRON_SECRET` automaticamente.
-3. Fora da Vercel, agende um `curl` você mesmo:
+As duas rotas abaixo **recusam tudo** se `CRON_SECRET` não estiver definido.
+
+| Rota | Frequência | O que faz |
+| --- | --- | --- |
+| `/api/cron/publish` | a cada minuto | publica os posts agendados |
+| `/api/cron/lifecycle` | de hora em hora | **renova os tokens do Instagram** que vencem em até 15 dias, avisa fim de teste e token vencendo |
+
+1. Gere um segredo (`openssl rand -hex 24`) e coloque em `CRON_SECRET`, no
+   `.env.local` e na Vercel.
+2. No Supabase (SQL Editor), grave o segredo no banco — ele **não** fica no
+   arquivo versionado — e depois rode `db/supabase-cron.sql`:
+   ```sql
+   alter database postgres set app.cron_secret = 'O_MESMO_SEGREDO';
+   ```
+3. Fora do Supabase, agende um `curl`:
    ```bash
    curl -X POST https://SEU_DOMINIO/api/cron/publish \
      -H "Authorization: Bearer $CRON_SECRET"
@@ -468,7 +476,13 @@ para o conjunto básico e a tela omite os números em vez de mostrar zeros.
 2. Cole **todas** as variáveis do `.env.local` em **Settings → Environment Variables**.
 3. Defina `NEXT_PUBLIC_APP_URL` com o domínio final (ex.: `https://postline.app`).
 4. Atualize os redirect URIs do Google (Supabase) e da Meta com o domínio final.
-5. Confira que `INSTAGRAM_APP_ID` e `INSTAGRAM_APP_SECRET` estão definidos — as
+5. Defina `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`) antes de conectar
+   contas: os tokens OAuth são gravados cifrados (AES-256-GCM). Guarde a chave;
+   sem ela as contas precisam ser reconectadas. Tokens antigos em texto puro
+   continuam funcionando e são cifrados na próxima renovação.
+6. **Não** defina `BILLING_SIMULATION` em produção — ele liga o checkout de
+   mentira que concede plano e créditos sem cobrar.
+7. Confira que `INSTAGRAM_APP_ID` e `INSTAGRAM_APP_SECRET` estão definidos — as
    `META_APP_ID`/`META_APP_SECRET` são só fallback legado e não servem para o
    fluxo de Instagram Login.
 

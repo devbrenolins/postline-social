@@ -3,12 +3,15 @@ import { db } from "@/db";
 import { clients } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { and, eq, isNull } from "drizzle-orm";
+import { denyUnlessRole } from "@/lib/access";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const denied = await denyUnlessRole(user, ["admin", "editor"]);
+  if (denied) return denied;
   const { id } = await params;
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
 
   const updates: Partial<typeof clients.$inferInsert> & { updatedAt: Date } = { updatedAt: new Date() };
   for (const key of ["name", "industry", "responsible", "notes", "status", "color"] as const) {
@@ -24,6 +27,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const denied = await denyUnlessRole(user, ["admin"]);
+  if (denied) return denied;
   const { id } = await params;
   await db.update(clients).set({ deletedAt: new Date() })
     .where(and(eq(clients.id, id), eq(clients.workspaceId, user.workspaceId)));

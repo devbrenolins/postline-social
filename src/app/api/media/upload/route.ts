@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, rateLimit } from "@/lib/auth";
+import { sniffMedia } from "@/lib/media-shared";
+import { denyIfTrialExpired, denyUnlessRole } from "@/lib/access";
 import { saveMedia, toInstagramJpeg } from "@/lib/media";
 
 export const runtime = "nodejs";
@@ -15,16 +17,24 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
+  const denied = (await denyUnlessRole(user, ["admin", "editor", "designer"])) ?? (await denyIfTrialExpired(user.workspaceId));
+  if (denied) return denied;
+  if (!rateLimit(`upload:${user.id}`, 60, 60_000)) {
+    return NextResponse.json({ error: "Muitos uploads seguidos. Aguarde um instante." }, { status: 429 });
+  }
+
   const form = await req.formData();
   const file = form.get("file");
   const folderId = (form.get("folderId") as string) || null;
   if (!(file instanceof File)) return NextResponse.json({ error: "Arquivo ausente." }, { status: 400 });
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "Arquivo muito grande (máx. 50MB)." }, { status: 413 });
 
-  const isVideo = file.type.startsWith("video");
-  const isImage = file.type.startsWith("image");
-
   let buffer: Buffer = Buffer.from(await file.arrayBuffer());
+  // O tipo real vem dos bytes do arquivo, não do cabeçalho enviado pelo cliente.
+  const kind = sniffMedia(buffer);
+  if (!kind) return NextResponse.json({ error: "Formato não suportado. Envie imagem (JPG, PNG, WebP, GIF) ou vídeo (MP4, MOV, WebM)." }, { status: 415 });
+  const isVideo = kind === "video";
+  const isImage = kind === "image";
   let contentType = file.type || "application/octet-stream";
   let ext = (file.name.split(".").pop() || (isVideo ? "mp4" : "jpg")).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
 

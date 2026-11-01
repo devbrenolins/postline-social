@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { socialAccounts } from "@/db/schema";
+import { eraseInstagramAccountData } from "@/lib/erase";
 import { parseSignedRequest } from "@/lib/meta";
 
 export const runtime = "nodejs";
@@ -30,12 +28,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 });
   }
 
-  // Desconecta a conta e descarta o token. O conteúdo do workspace continua com
-  // o titular — a remoção completa é feita pelo fluxo de exclusão de conta.
-  await db
-    .update(socialAccounts)
-    .set({ connected: false, accessToken: null, deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(socialAccounts.externalId, parsed.user_id), eq(socialAccounts.platform, "instagram")));
+  // Apaga de verdade: tokens, conta, caixa de entrada e métricas ligadas a ela.
+  // O `user_id` da Meta pode ser o id profissional ou o app-scoped.
+  await eraseInstagramAccountData(parsed.user_id);
 
   const confirmationCode = randomUUID();
   const base = process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin;

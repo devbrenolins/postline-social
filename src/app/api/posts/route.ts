@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { posts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
+import { denyIfTrialExpired, denyUnlessRole } from "@/lib/access";
 import { publishPost } from "@/lib/publishing";
 import { sanitizePublishOptions } from "@/lib/publish-options";
 import { notifyUser } from "@/lib/push";
@@ -46,8 +47,16 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
-  const body = await req.json();
+  const denied = await denyUnlessRole(user, ["admin", "editor", "designer"]);
+  if (denied) return denied;
+
+  const body = await req.json().catch(() => ({}));
   const status = (body.status as "draft" | "scheduled" | "published") ?? "draft";
+  if (status !== "draft") {
+    // Rascunho continua liberado; agendar/publicar exige plano ativo.
+    const expired = await denyIfTrialExpired(user.workspaceId);
+    if (expired) return expired;
+  }
   const now = new Date();
   const wantsPublish = status === "published";
 

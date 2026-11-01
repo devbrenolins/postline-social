@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
+import { connectBlockedByPlan, denyUnlessRole, roleOf } from "@/lib/access";
 import { exchangeCodeForToken, getProfile } from "@/lib/tiktok";
 
 const STATE_COOKIE = "tiktok_oauth_state";
@@ -29,11 +30,18 @@ export async function GET(req: NextRequest) {
 
   const workspaceId = stateWid && stateWid === user.workspaceId ? stateWid : user.workspaceId;
 
+  const role = await roleOf(workspaceId, user.id);
+  if (role !== "admin" && role !== "editor") return done("error=" + encodeURIComponent("Você não tem permissão para conectar contas."));
+
   try {
     const tokens = await exchangeCodeForToken(code);
     const profile = await getProfile(tokens.accessToken);
     // `open_id` é o identificador estável da conta para este app.
     const externalId = profile.openId || tokens.openId;
+    if (await connectBlockedByPlan(workspaceId, "tiktok", externalId)) {
+      return done("error=" + encodeURIComponent("Limite de contas do seu plano atingido. Faça upgrade para conectar mais."));
+    }
+
     const handle = profile.username || profile.displayName || externalId;
 
     await db

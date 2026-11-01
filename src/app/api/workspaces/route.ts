@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/db";
 import { workspaces, workspaceMembers, activityLogs, users } from "@/db/schema";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { ACTIVE_WORKSPACE_SETTING, getSessionUser, WORKSPACE_COOKIE } from "@/lib/auth";
 import { TRIAL_DAYS } from "@/lib/plans";
 
@@ -73,10 +73,20 @@ export async function POST(req: NextRequest) {
   const name = String(body.name ?? "").trim();
   if (!name) return NextResponse.json({ error: "Informe o nome do workspace." }, { status: 400 });
 
+  // Um teste por pessoa: workspaces extras herdam o prazo do primeiro que ela
+  // criou, em vez de ganhar 7 dias novos a cada um.
+  const [firstOwned] = await db
+    .select({ trialEndsAt: workspaces.trialEndsAt, createdAt: workspaces.createdAt })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, user.id))
+    .orderBy(asc(workspaces.createdAt))
+    .limit(1);
+  const trialEndsAt = firstOwned ? (firstOwned.trialEndsAt ?? new Date(firstOwned.createdAt.getTime() + TRIAL_DAYS * 86_400_000)) : trialDeadline();
+
   const slug = `${slugify(name) || "workspace"}-${user.id.slice(0, 6)}-${Math.random().toString(36).slice(2, 6)}`;
   const [ws] = await db
     .insert(workspaces)
-    .values({ name, slug, color: user.avatarColor, ownerId: user.id, plan: "trial", trialEndsAt: trialDeadline() })
+    .values({ name, slug, color: user.avatarColor, ownerId: user.id, plan: "trial", trialEndsAt })
     .returning();
   await db.insert(workspaceMembers).values({
     workspaceId: ws.id,

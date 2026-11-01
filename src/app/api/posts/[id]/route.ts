@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 import { sanitizePublishOptions } from "@/lib/publish-options";
 import { and, eq, isNull } from "drizzle-orm";
 import { publishPost } from "@/lib/publishing";
+import { denyIfTrialExpired, denyUnlessRole } from "@/lib/access";
 
 export const maxDuration = 60;
 
@@ -21,8 +22,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const post = await loadPost(id, user.workspaceId);
   if (!post) return NextResponse.json({ error: "Publicação não encontrada." }, { status: 404 });
+  const deniedRole = await denyUnlessRole(user, ["admin", "editor", "designer"]);
+  if (deniedRole) return deniedRole;
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
+  // Publicar ou (re)agendar exige plano ativo; editar rascunho e cancelar continuam livres.
+  if (body.action === "publish" || body.action === "reschedule" || body.action === "restore" || body.status === "scheduled" || body.scheduledAt) {
+    const expired = await denyIfTrialExpired(user.workspaceId);
+    if (expired) return expired;
+  }
   const action = body.action as string | undefined;
   const now = new Date();
 

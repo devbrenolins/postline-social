@@ -4,6 +4,7 @@ import { posts } from "@/db/schema";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import { publishPost } from "@/lib/publishing";
 import { notifyUser, notifyWorkspace } from "@/lib/push";
+import { trialState } from "@/lib/credits";
 
 export const maxDuration = 60;
 
@@ -15,7 +16,8 @@ export const maxDuration = 60;
 async function run(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`) {
+  // Fail-closed: sem CRON_SECRET configurado a rota recusa tudo.
+  if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
 
@@ -26,8 +28,15 @@ async function run(req: NextRequest) {
     .limit(50);
 
   const summary: { id: string; status: string; error?: string }[] = [];
+  const expiredCache = new Map<string, boolean>();
   for (const post of due) {
     try {
+      // Teste vencido: o post fica agendado (não é perdido), mas não publica.
+      if (!expiredCache.has(post.workspaceId)) expiredCache.set(post.workspaceId, (await trialState(post.workspaceId)).expired);
+      if (expiredCache.get(post.workspaceId)) {
+        summary.push({ id: post.id, status: "skipped_trial_expired" });
+        continue;
+      }
       const { status, results } = await publishPost(post.id, post.workspaceId);
       summary.push({ id: post.id, status });
       const ok = status === "published";

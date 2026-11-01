@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
+import { connectBlockedByPlan, denyUnlessRole, roleOf } from "@/lib/access";
 import { exchangeCodeForToken, getMe, X_SCOPES } from "@/lib/x";
 
 const STATE_COOKIE = "x_oauth_state";
@@ -32,9 +33,16 @@ export async function GET(req: NextRequest) {
 
   const workspaceId = stateWid && stateWid === user.workspaceId ? stateWid : user.workspaceId;
 
+  const role = await roleOf(workspaceId, user.id);
+  if (role !== "admin" && role !== "editor") return done("error=" + encodeURIComponent("Você não tem permissão para conectar contas."));
+
   try {
     const tokens = await exchangeCodeForToken(code, verifier);
     const me = await getMe(tokens.accessToken);
+    if (await connectBlockedByPlan(workspaceId, "x", me.id)) {
+      return done("error=" + encodeURIComponent("Limite de contas do seu plano atingido. Faça upgrade para conectar mais."));
+    }
+
 
     await db
       .insert(socialAccounts)

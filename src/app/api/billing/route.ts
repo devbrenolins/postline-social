@@ -17,6 +17,14 @@ export const maxDuration = 30;
  * para não virar crédito grátis para qualquer membro.
  */
 
+/**
+ * O checkout simulado só roda com `BILLING_SIMULATION=1` (dev/demo). Em produção
+ * fica desligado: sem um provedor de pagamento real, ninguém muda de plano nem
+ * ganha crédito por esta rota. Quando o provedor entrar, `changePlan` e a
+ * confirmação de compra passam a ser feitos SÓ pelo webhook assinado dele.
+ */
+const SIMULATION = () => process.env.BILLING_SIMULATION === "1";
+
 async function requireAdmin(workspaceId: string, userId: string) {
   const [membership] = await db
     .select({ role: workspaceMembers.role })
@@ -55,7 +63,7 @@ export async function GET() {
     purchases,
     isAdmin,
     // Deixa explícito para a interface que nada é cobrado de verdade ainda.
-    simulated: true,
+    simulated: SIMULATION(),
   });
 }
 
@@ -64,6 +72,13 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   if (!(await requireAdmin(user.workspaceId, user.id))) {
     return NextResponse.json({ error: "Apenas administradores podem alterar plano e créditos." }, { status: 403 });
+  }
+
+  if (!SIMULATION()) {
+    return NextResponse.json(
+      { error: "Pagamentos ainda não estão disponíveis. Fale com o suporte para contratar um plano.", code: "billing_unavailable" },
+      { status: 501 }
+    );
   }
 
   const body = await req.json().catch(() => ({}));

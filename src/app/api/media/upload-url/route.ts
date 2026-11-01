@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, rateLimit } from "@/lib/auth";
+import { mediaKindFromExt } from "@/lib/media-shared";
+import { denyIfTrialExpired, denyUnlessRole } from "@/lib/access";
 import { MEDIA_BUCKET, registerMedia } from "@/lib/media";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -20,12 +22,21 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
-  const { name, contentType, size } = await req.json();
+  const denied = (await denyUnlessRole(user, ["admin", "editor", "designer"])) ?? (await denyIfTrialExpired(user.workspaceId));
+  if (denied) return denied;
+  if (!rateLimit(`upload-url:${user.id}`, 60, 60_000)) {
+    return NextResponse.json({ error: "Muitos uploads seguidos. Aguarde um instante." }, { status: 429 });
+  }
+
+  const { name, contentType, size } = await req.json().catch(() => ({}));
   if (typeof size === "number" && size > MAX_BYTES) {
     return NextResponse.json({ error: "Arquivo muito grande (máx. 50MB)." }, { status: 413 });
   }
 
   const ext = (String(name ?? "").split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+  if (!mediaKindFromExt(ext)) {
+    return NextResponse.json({ error: "Formato não suportado. Envie imagem (JPG, PNG, WebP, GIF) ou vídeo (MP4, MOV, WebM)." }, { status: 415 });
+  }
   const path = `${user.workspaceId}/${crypto.randomUUID()}.${ext}`;
 
   const supabase = createSupabaseAdminClient();
@@ -46,7 +57,7 @@ export async function PUT(req: NextRequest) {
 
   // O caminho vem do cliente: só aceitamos o que está dentro do workspace dele,
   // senão daria para registrar (e expor) mídia de outro workspace.
-  if (typeof path !== "string" || !path.startsWith(`${user.workspaceId}/`)) {
+  if (typeof path !== "string" || !path.startsWith(`${user.workspaceId}/`) || path.includes("..")) {
     return NextResponse.json({ error: "Caminho inválido." }, { status: 400 });
   }
 

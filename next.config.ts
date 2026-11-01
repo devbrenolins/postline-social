@@ -24,7 +24,41 @@ const SHARP_FOREIGN = FOREIGN_ARCHES.flatMap((arch) => [
   `./node_modules/@img/sharp-libvips-${arch}/**`,
 ]);
 
+const isDev = process.env.NODE_ENV !== "production";
+
+// CSP enxuta: o Next injeta scripts inline na hidratação, então 'unsafe-inline'
+// continua em script-src (trocar por nonce exige renderização dinâmica em tudo).
+// O ganho principal está nas demais diretivas: sem frames, sem <base> hostil e
+// conexões só para o próprio domínio e o Supabase.
+const CSP = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "object-src 'none'",
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: CSP },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+];
+
 const nextConfig: NextConfig = {
+  async headers() {
+    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+  },
+
   // sharp usa binários nativos (.node) que não podem ser empacotados na função
   // serverless — precisa ser tratado como pacote externo para carregar em runtime.
   serverExternalPackages: ["sharp"],

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte } from "drizzle-orm";
+import { refreshLongLivedToken } from "@/lib/instagram";
 import { db } from "@/db";
 import { socialAccounts, workspaces } from "@/db/schema";
 import { notifyUser, notifyWorkspace } from "@/lib/push";
@@ -23,7 +24,8 @@ const DIA = 24 * 60 * 60 * 1000;
 async function run(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`) {
+  // Fail-closed: sem CRON_SECRET configurado a rota recusa tudo.
+  if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
 
@@ -72,7 +74,40 @@ async function run(req: NextRequest) {
     trialAvisos += 1;
   }
 
-  /* --------------------- 2. Token do Instagram vencendo ------------------ */
+  /* ------------- 2a. Renova sozinho os tokens do Instagram ---------------- */
+
+  // O long-lived dura ~60 dias e pode ser renovado enquanto não vencer. Renovar
+  // aqui evita que o usuário precise reconectar; o aviso abaixo só dispara para
+  // quem falhou (token já vencido, permissão revogada...).
+  let renovados = 0;
+  const paraRenovar = await db
+    .select({ id: socialAccounts.id, accessToken: socialAccounts.accessToken })
+    .from(socialAccounts)
+    .where(
+      and(
+        eq(socialAccounts.platform, "instagram"),
+        eq(socialAccounts.connected, true),
+        isNotNull(socialAccounts.accessToken),
+        isNotNull(socialAccounts.tokenExpiresAt),
+        lte(socialAccounts.tokenExpiresAt, new Date(agora.getTime() + 15 * DIA)),
+        gt(socialAccounts.tokenExpiresAt, agora),
+        isNull(socialAccounts.deletedAt)
+      )
+    );
+  for (const conta of paraRenovar) {
+    try {
+      const novo = await refreshLongLivedToken(conta.accessToken!);
+      await db
+        .update(socialAccounts)
+        .set({ accessToken: novo, tokenExpiresAt: new Date(Date.now() + 55 * DIA), updatedAt: new Date() })
+        .where(eq(socialAccounts.id, conta.id));
+      renovados += 1;
+    } catch (e) {
+      console.error(`[cron/lifecycle] falha ao renovar token ${conta.id}`, e);
+    }
+  }
+
+  /* --------------------- 2b. Token do Instagram vencendo ----------------- */
 
   const limite = new Date(agora.getTime() + 7 * DIA);
   const vencendo = await db
@@ -110,7 +145,7 @@ async function run(req: NextRequest) {
     tokenAvisos += 1;
   }
 
-  return NextResponse.json({ ok: true, trialAvisos, tokenAvisos });
+  return NextResponse.json({ ok: true, trialAvisos, tokenAvisos, renovados });
 }
 
 export async function GET(req: NextRequest) {

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { socialAccounts } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth";
+import { denyUnlessRole } from "@/lib/access";
 import { sendDirectMessage } from "@/lib/instagram";
 import { refreshWorkspaceMetrics } from "@/lib/metrics";
 
@@ -47,6 +48,11 @@ export async function POST(req: NextRequest) {
         .where(and(eq(socialAccounts.id, id), eq(socialAccounts.workspaceId, wid), isNull(socialAccounts.deletedAt)))
         .limit(1)
     )[0];
+  }
+
+  if (body.action === "disconnect" || body.action === "dm") {
+    const denied = await denyUnlessRole(user, body.action === "disconnect" ? ["admin"] : ["admin", "editor"]);
+    if (denied) return denied;
   }
 
   switch (body.action) {

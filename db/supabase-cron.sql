@@ -13,6 +13,11 @@
 --  que está em .env.local / nas variáveis da Vercel.
 -- ============================================================================
 
+--  ATENÇÃO: o CRON_SECRET NÃO fica neste arquivo (ele vai para o git). Antes de
+--  rodar, defina-o no banco, uma única vez, na mesma sessão do SQL Editor:
+--      alter database postgres set app.cron_secret = 'COLE_O_SEGREDO_AQUI';
+--  e reconecte. O job lê o valor com current_setting().
+--
 -- 1. Extensões (idempotente)
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
@@ -28,7 +33,7 @@ select cron.schedule(
   select net.http_post(
     url     := 'https://postline-social.vercel.app/api/cron/publish',
     headers := jsonb_build_object(
-      'Authorization', 'Bearer 1oR9un0gpAENW0xCdO1cOInP0Du0bZeO',
+      'Authorization', 'Bearer ' || current_setting('app.cron_secret'),
       'Content-Type',  'application/json'
     ),
     body    := '{}'::jsonb
@@ -50,7 +55,7 @@ select cron.schedule(
   select net.http_post(
     url     := 'https://postline-social.vercel.app/api/cron/lifecycle',
     headers := jsonb_build_object(
-      'Authorization', 'Bearer 1oR9un0gpAENW0xCdO1cOInP0Du0bZeO',
+      'Authorization', 'Bearer ' || current_setting('app.cron_secret'),
       'Content-Type',  'application/json'
     ),
     body    := '{}'::jsonb

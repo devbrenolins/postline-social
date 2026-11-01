@@ -12,7 +12,16 @@ import {
   uniqueIndex,
   date,
   numeric,
+  customType,
 } from "drizzle-orm/pg-core";
+import { decryptSecret, encryptSecret } from "../lib/secret";
+
+/** Coluna `text` cujo conteúdo é cifrado/decifrado de forma transparente (ver lib/secret.ts). */
+const encryptedText = customType<{ data: string; driverData: string }>({
+  dataType: () => "text",
+  toDriver: (value) => encryptSecret(value),
+  fromDriver: (value) => decryptSecret(value),
+});
 
 /* ------------------------------------------------------------------ */
 /*  Auth & Identity                                                    */
@@ -158,13 +167,13 @@ export const socialAccounts = pgTable(
     appScopedId: varchar("app_scoped_id", { length: 80 }),
     pageId: varchar("page_id", { length: 64 }), // Facebook Page vinculada
     avatarUrl: text("avatar_url"),
-    accessToken: text("access_token"), // long-lived token da conta/página
+    accessToken: encryptedText("access_token"), // long-lived token da conta/página
     /**
      * Token de renovação. O Instagram não usa (o long-lived se renova sozinho),
      * mas o X entrega access token de ~2h e sem isto a conta se desconectaria
      * sozinha a cada duas horas.
      */
-    refreshToken: text("refresh_token"),
+    refreshToken: encryptedText("refresh_token"),
     tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
     scopes: jsonb("scopes").$type<string[]>().default([]),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),

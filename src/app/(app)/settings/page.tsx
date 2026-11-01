@@ -151,15 +151,7 @@ function WorkspaceTab() {
         </div>
       </Card>
       <Card title="Zona de perigo" sub="Ações irreversíveis">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[13px] font-medium">Excluir workspace</p>
-            <p className="text-[11.5px] text-muted">Remove todos os posts, mídias e dados analíticos.</p>
-          </div>
-          <Button variant="danger" size="sm" onClick={() => toast.error("A exclusão requer confirmação por e-mail. Contate o suporte.")}>
-            <Trash2 size={13} /> Excluir
-          </Button>
-        </div>
+        <DeleteAccount />
       </Card>
     </>
   );
@@ -458,5 +450,59 @@ function SecurityTab() {
         <p className="mt-3 text-[11.5px] text-muted">Sair de todos os dispositivos invalida as sessões anteriores.</p>
       </Card>
     </>
+  );
+}
+
+
+/* ----------------------------- Excluir conta ----------------------------- */
+function DeleteAccount() {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function confirm() {
+    setBusy(true);
+    const res = await fetch("/api/account", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) return toast.error(data.error ?? "Não foi possível excluir a conta.");
+    window.location.href = "/login";
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[13px] font-medium">Excluir minha conta</p>
+          <p className="text-[11.5px] text-muted">
+            Apaga seu login, os workspaces que você criou e tudo dentro deles: posts, mídias, contas conectadas e métricas. Não tem volta.
+          </p>
+        </div>
+        {!open && (
+          <Button variant="danger" size="sm" onClick={() => setOpen(true)}>
+            <Trash2 size={13} /> Excluir
+          </Button>
+        )}
+      </div>
+      {open && (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className={inputCls}
+            placeholder="Digite seu e-mail para confirmar"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="off"
+          />
+          <Button variant="danger" size="sm" disabled={busy || !email.includes("@")} onClick={confirm}>
+            {busy ? "Excluindo…" : "Excluir definitivamente"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setEmail(""); }}>Cancelar</Button>
+        </div>
+      )}
+    </div>
   );
 }

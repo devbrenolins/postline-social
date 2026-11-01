@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { db } from "@/db";
 import { socialAccounts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
+import { connectBlockedByPlan, denyUnlessRole, roleOf } from "@/lib/access";
 import { exchangeCodeForToken, getLongLivedToken, getSelfAccount, subscribeToWebhooks, META_SCOPES } from "@/lib/instagram";
 
 const STATE_COOKIE = "meta_oauth_state";
@@ -33,10 +34,17 @@ export async function GET(req: NextRequest) {
   // Usa o workspace do state se o usuário for membro; senão o ativo.
   const workspaceId = stateWid && stateWid === user.workspaceId ? stateWid : user.workspaceId;
 
+  const role = await roleOf(workspaceId, user.id);
+  if (role !== "admin" && role !== "editor") return done("error=" + encodeURIComponent("Você não tem permissão para conectar contas."));
+
   try {
     const { token: shortToken, userId } = await exchangeCodeForToken(code);
     const longToken = await getLongLivedToken(shortToken);
     const acc = await getSelfAccount(longToken, userId);
+    if (await connectBlockedByPlan(workspaceId, "instagram", acc.igId)) {
+      return done("error=" + encodeURIComponent("Limite de contas do seu plano atingido. Faça upgrade para conectar mais."));
+    }
+
 
     const expiresAt = new Date(Date.now() + 55 * 24 * 60 * 60 * 1000); // ~55 dias
     await db

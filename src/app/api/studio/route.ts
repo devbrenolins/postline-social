@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { aiGenerations, competitors, directAutomations, media, posts } from "@/db/schema";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, rateLimit } from "@/lib/auth";
 import { AiConfigurationError, aiConfigured, generateCreative, generateText, imageConfigured, imageModel, imageProvider, textModel, type ImageSize, type ReferenceImage } from "@/lib/ai";
 import { IMAGE_DIMENSIONS } from "@/lib/ai-types";
 import { metaConfigured, sendInstagramDirect } from "@/lib/meta";
@@ -103,6 +103,9 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   const wid = user.workspaceId;
+  if (!rateLimit(`studio:${user.id}`, 20, 60_000)) {
+    return NextResponse.json({ error: "Muitas gerações em sequência. Aguarde um minuto." }, { status: 429 });
+  }
   const body = await req.json();
 
   try {

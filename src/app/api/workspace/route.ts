@@ -4,7 +4,8 @@ import {
   workspaces, workspaceMembers, clients, socialAccounts, notifications,
   activityLogs, apiKeys, posts, inboxItems, users, webhooks,
 } from "@/db/schema";
-import { generateToken, getSessionUser } from "@/lib/auth";
+import { generateToken, getSessionUser, rateLimit, sha256 } from "@/lib/auth";
+import { denyIfOverPlanLimit, denyUnlessRole } from "@/lib/access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient, supabaseAdminConfigured } from "@/lib/supabase/admin";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
@@ -66,17 +67,31 @@ export async function GET() {
   });
 }
 
+/** Ações que mexem em equipe, chaves e dados do workspace: só administradores. */
+const ADMIN_ACTIONS = new Set(["invite", "removeMember", "changeRole", "createKey", "revokeKey", "updateWorkspace"]);
+const ROLES = ["admin", "editor", "designer", "client"];
+
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   const wid = user.workspaceId;
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
+
+  if (ADMIN_ACTIONS.has(body.action)) {
+    const denied = await denyUnlessRole(user, ["admin"]);
+    if (denied) return denied;
+  }
 
   switch (body.action) {
     case "invite": {
       const email = String(body.email ?? "").toLowerCase().trim();
       if (!email.includes("@")) return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
-      const role = ["admin", "editor", "designer", "client"].includes(body.role) ? body.role : "editor";
+      const role = ROLES.includes(body.role) ? body.role : "editor";
+      if (!rateLimit(`invite:${user.id}`, 20, 3_600_000)) {
+        return NextResponse.json({ error: "Muitos convites em pouco tempo. Tente mais tarde." }, { status: 429 });
+      }
+      const overLimit = await denyIfOverPlanLimit(wid, "members");
+      if (overLimit) return overLimit;
 
       // Evita convite duplicado (pendente ou já membro pelo e-mail).
       const existing = await db
@@ -116,11 +131,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, emailed });
     }
     case "removeMember": {
+      const [target] = await db.select().from(workspaceMembers)
+        .where(and(eq(workspaceMembers.id, body.id), eq(workspaceMembers.workspaceId, wid))).limit(1);
+      if (!target) return NextResponse.json({ error: "Membro não encontrado." }, { status: 404 });
+      const [ws] = await db.select({ ownerId: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, wid)).limit(1);
+      if (target.userId && target.userId === ws?.ownerId) {
+        return NextResponse.json({ error: "O dono do workspace não pode ser removido." }, { status: 400 });
+      }
       await db.update(workspaceMembers).set({ deletedAt: new Date() })
         .where(and(eq(workspaceMembers.id, body.id), eq(workspaceMembers.workspaceId, wid)));
       return NextResponse.json({ ok: true });
     }
     case "changeRole": {
+      if (!ROLES.includes(body.role)) return NextResponse.json({ error: "Papel inválido." }, { status: 400 });
+      const [target] = await db.select().from(workspaceMembers)
+        .where(and(eq(workspaceMembers.id, body.id), eq(workspaceMembers.workspaceId, wid))).limit(1);
+      if (!target) return NextResponse.json({ error: "Membro não encontrado." }, { status: 404 });
+      const [ws] = await db.select({ ownerId: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, wid)).limit(1);
+      if (target.userId && target.userId === ws?.ownerId && body.role !== "admin") {
+        return NextResponse.json({ error: "O dono do workspace precisa continuar como administrador." }, { status: 400 });
+      }
       await db.update(workspaceMembers).set({ role: body.role, updatedAt: new Date() })
         .where(and(eq(workspaceMembers.id, body.id), eq(workspaceMembers.workspaceId, wid)));
       return NextResponse.json({ ok: true });
@@ -138,7 +168,8 @@ export async function POST(req: NextRequest) {
     case "createKey": {
       const name = String(body.name ?? "").trim() || "Nova chave";
       const key = `pl_live_${generateToken(18)}`;
-      await db.insert(apiKeys).values({ workspaceId: wid, name, prefix: "pl_live_", key });
+      // Só o hash vai para o banco; a chave em claro aparece uma única vez, aqui.
+      await db.insert(apiKeys).values({ workspaceId: wid, name, prefix: "pl_live_", key: sha256(key) });
       return NextResponse.json({ ok: true, key });
     }
     case "revokeKey": {

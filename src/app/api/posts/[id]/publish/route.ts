@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
+import { denyIfTrialExpired, denyUnlessRole } from "@/lib/access";
 import { publishPost } from "@/lib/publishing";
 import { notifyUser } from "@/lib/push";
 
@@ -12,6 +13,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   const { id } = await params;
+  const denied = (await denyUnlessRole(user, ["admin", "editor", "designer"])) ?? (await denyIfTrialExpired(user.workspaceId));
+  if (denied) return denied;
 
   try {
     const { status, results } = await publishPost(id, user.workspaceId);

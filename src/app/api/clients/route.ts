@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { clients, socialAccounts, activityLogs } from "@/db/schema";
 import { getSessionUser } from "@/lib/auth";
 import { and, eq, isNull } from "drizzle-orm";
+import { denyIfOverPlanLimit, denyIfTrialExpired, denyUnlessRole } from "@/lib/access";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -19,7 +20,9 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-  const body = await req.json();
+  const denied = (await denyUnlessRole(user, ["admin", "editor"])) ?? (await denyIfTrialExpired(user.workspaceId)) ?? (await denyIfOverPlanLimit(user.workspaceId, "clients"));
+  if (denied) return denied;
+  const body = await req.json().catch(() => ({}));
   const name = String(body.name ?? "").trim();
   if (!name) return NextResponse.json({ error: "Nome obrigatório." }, { status: 400 });
   const palette = ["#AB2F5F", "#3E6C8E", "#3F7D5D", "#6B5B95", "#8A6D3B", "#C2410C"];
